@@ -218,6 +218,21 @@ public sealed class AuditRegressionTests
     }
 
     [Fact]
+    public void EffectSwitch_FlushesOldQueueExactlyOnce_AndResetsOrderingClock()
+    {
+        using var engine = DiagnosticModesTests.Engine();
+        var sent = ModelGlobal(engine, DiagnosticMode.OutboundFreeze, () => 0);
+        Capture(engine, 1); Capture(engine, 2);
+        engine.ActiveDiagnosticMode = DiagnosticMode.LatencyDelay;
+        Assert.Equal(new[] { 1, 2 }, sent);
+        Assert.Empty(Queue(engine));
+        Capture(engine, 3);
+        Assert.True(Release(engine, Ticks(150)));
+        engine.Stop();
+        Assert.Equal(new[] { 1, 2, 3 }, sent);
+    }
+
+    [Fact]
     public async Task StrictReinjectionFailure_StopsInsteadOfReportingWorkingCapture()
     {
         using var engine = DiagnosticModesTests.Engine();

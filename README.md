@@ -23,7 +23,7 @@ No escopo estrito, selecione aplicação/janela, filtro e efeito em “Perfil do
 - Atraso (ms): retenção por pacote de 0–3000 ms, independente da duração do pulso estrito.
 - Drop (%): descarte explícito de 0–100%; 100% é queda total, não Lag.
 
-Para os três efeitos, duração de 0 a 800 ms, padrão 150 ms; 0 não inicia efeito nem captura. Os presets legados conservam suas próprias durações. Não se garante precisão de tempo real no Windows.
+Para efeitos diagnósticos no escopo estrito, duração do pulso de 0 a 800 ms, padrão 150 ms; 0 não inicia efeito nem captura. Os presets legados conservam suas próprias durações. Não se garante precisão de tempo real no Windows.
 
 “Pulso manual” inicia uma execução pelo botão. O atalho GLOBAL configurado (padrão Espaço) inicia o mesmo ciclo temporizado, com o mesmo perfil, alvo e filtro. Não existe ciclo periódico/automático. Uma tecla mantida não repete; novos acionamentos durante um ciclo são ignorados. O hook nunca consome a tecla: Espaço continua chegando à aplicação, inclusive para o pulo normal. A opção de foco limita o acionamento à janela selecionada. F6/F7/F8 não são atalhos próprios dos modos.
 

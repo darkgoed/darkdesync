@@ -22,6 +22,7 @@ Roblox Player REAL não foi executado. Não há conclusão de compatibilidade co
 | A10 | P2 | STOP não limpava flags transitórias IsDropActive/IsThrottleActive; safety-stop assíncrono podia atingir geração posterior | STOP limpa flags; callback compara geração antes de encerrar captura |
 | A11 | P2 | LatencyDelay aparecia na UI estrita mas não era mapeado em ExecuteTriggerCycle | Pulso estrito mapeia Lag explicitamente; continua sujeito a duração 0–800ms e identidade por tupla |
 | A12 | P2 | Release loop podia executar sem pausa enquanto sempre houvesse pacote vencido; exceção era apenas logada | Lotes máximos de 64 + espera cancelável de 4ms; exceção solicita STOP de segurança |
+| A13 | P2 | API ActiveDiagnosticMode não liberava a fila do efeito anterior (Freeze→Lag mantinha prazo infinito) | Troca atômica sob packet lock libera a fila anterior uma vez e reseta o relógio de ordering |
 
 ## Matriz de cobertura
 
@@ -40,9 +41,11 @@ Roblox Player REAL não foi executado. Não há conclusão de compatibilidade co
 
 ## Contrato de fila e falhas
 
-Atraso nominal = captura + slider atual; alteração ao vivo afeta também pendentes. FIFO é mantido, inclusive na saturação. Saturação Lag/throttle pode encurtar o atraso do pacote mais antigo, sem drop intencional. Freeze não permite crescimento ilimitado: ao atingir limite de retenção, para e tenta reinjetar tudo. Pacotes recusados pelo envio não podem ser recuperados por close/flush; são contados como perda e a captura é parada. STOP limpa flags transitórias, drena o driver e a fila antes de fechar o handle. O ciclo estrito pode abreviar retenção ao terminar/trocar escopo; GLOBAL contínuo não depende do timer de 800ms.
+Atraso nominal = captura + slider atual; alteração ao vivo afeta também pendentes. FIFO é mantido na fila/época, inclusive na saturação; não é garantia de ordem total com tráfego novo que passa fora do handle durante turnover/STOP. Saturação Lag/throttle pode encurtar o atraso do pacote mais antigo, sem drop intencional. Freeze não permite crescimento ilimitado: ao atingir limite de retenção, para e tenta reinjetar tudo. Pacotes recusados pelo envio não podem ser recuperados por close/flush; são contados como perda e a captura é parada. Contadores por protocolo de drops dentro do processamento não substituem o total de perdas: falhas de envio assíncrono da fila entram no total. STOP limpa flags transitórias, drena o driver e a fila antes de fechar o handle. O ciclo estrito pode abreviar retenção ao terminar/trocar escopo; GLOBAL contínuo não depende do timer de 800ms.
 
 ## Execução e release
+
+Histórico real antes do candidato final: run `41289816874` executou driver com sucesso, mas unit detectou expectativa antiga de overflow Freeze (modelo não representava captura ativa). Teste passou a exigir STOP real modelado e flush, não pass-through indefinido. Run `41289969036` teve 128/128 unit e 23/23 driver, sem skips; WPF detectou modelo de teste incompleto (IsCaptureRequested/UI running não definidos). O modelo WPF foi corrigido explicitamente; isso não representa teste nativo da UI em Roblox. Nenhum desses runs vermelhos é elegível para release.
 
 Resultados serão acrescentados após execução real dos workflows. Antes disso, novos testes são cobertura implementada, não alegação de testes verdes. Gates: Windows unit/regression + WPF + NuGet + publish; workflow_dispatch com driver_tests=true e legacy_global_tests=true no commit candidato; repetir validação no merge main; baixar exclusivamente DarkDesync-win-x64 desse run, validar arquivos/proveniência, criar ZIP/SHA256 e tag única no exato merge. Qualquer gate vermelho impede merge/release.
 

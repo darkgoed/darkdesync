@@ -94,6 +94,8 @@ internal static class Program
             void ModelRunning()
             {
                 typeof(PacketEngine).GetField("_isRunning", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(engine, true);
+                typeof(PacketEngine).GetField("_captureRequested", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(engine, true);
+                typeof(MainViewModel).GetProperty(nameof(vm.IsEngineRunning))!.SetValue(vm, true);
                 engine.StateMachine.TryActivate();
             }
             ModelRunning();

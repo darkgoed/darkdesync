@@ -99,7 +99,15 @@ public sealed class PacketEngine : IDisposable
     public DiagnosticMode ActiveDiagnosticMode
     {
         get => _activeDiagnosticMode;
-        set => _activeDiagnosticMode = value;
+        set
+        {
+            lock (_packetLock)
+            {
+                // Pending packets belong to the previous effect, never to its successor.
+                if (_activeDiagnosticMode != value) FlushThrottleQueueLocked();
+                _activeDiagnosticMode = value;
+            }
+        }
     }
 
     private int _globalDelayMs = 150;
