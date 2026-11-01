@@ -39,9 +39,15 @@ public sealed class PacketEngine : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _captureTask;
     private Task? _throttleReleaseTask;
-    private Task? _portRefreshTask;
+
 
     private uint _targetProcessId;
+    private Process? _targetProcess;
+    private ProcessNetworkScanner.ProcessEndpoint[] _scopedConnections = [];
+    internal Func<bool>? TargetAliveOverride { get; set; }
+    internal Func<uint, List<ProcessNetworkScanner.ProcessEndpoint>>? EndpointsOverride { get; set; }
+    private List<ProcessNetworkScanner.ProcessEndpoint> ReadEndpoints() =>
+        EndpointsOverride?.Invoke(_targetProcessId) ?? _scanner.GetEndpointsForProcess(_targetProcessId);
     private FilterMode _filterMode = FilterMode.Outbound;
     private string _customFilter = "outbound";
     private int _dropPercentage = 100;
@@ -256,6 +262,12 @@ public sealed class PacketEngine : IDisposable
 
         _currentFilter = ResolveFilterString();
 
+        if (_currentFilter == "false")
+        {
+            ErrorOccurred?.Invoke("Captura bloqueada: selecione um processo com conexão TCP/IPv4 estabelecida e exclusiva. UDP, IPv6 e portas isoladas não identificam o alvo com segurança nesta versão.");
+            return false;
+        }
+
         if (!OpenNetworkHandle(_currentFilter))
         {
             return false;
@@ -272,12 +284,8 @@ public sealed class PacketEngine : IDisposable
         _captureTask = Task.Run(() => CaptureLoop(_cts.Token));
         _throttleReleaseTask = Task.Run(() => ThrottleReleaseLoop(_cts.Token));
 
-        if (_filterMode == FilterMode.ProcessPorts && _targetProcessId != 0)
-        {
-            _flowTracker.PortsChanged += OnPortsChanged;
-            _flowTracker.Start(_targetProcessId);
-            _portRefreshTask = Task.Run(() => PortRefreshLoop(_cts.Token));
-        }
+        // Connection scope is immutable for this capture session. New connections
+        // require an explicit restart, never a broad port-based fallback.
 
         _logger.LogInformation("PacketEngine started. Filter: '{Filter}', Drop: {Drop}%, Throttle: {Throttle}",
             _currentFilter, _dropPercentage, _throttleEnabled);
@@ -291,45 +299,38 @@ public sealed class PacketEngine : IDisposable
 
     public void UpdateFilter(FilterMode mode, uint processId = 0, string? customFilter = null)
     {
+        // Stop and flush before any target/filter change; never close a live sender.
+        Stop();
         _filterMode = mode;
         _targetProcessId = processId;
         if (!string.IsNullOrWhiteSpace(customFilter))
             _customFilter = customFilter;
-
-        string newFilter = ResolveFilterString();
-        if (newFilter == _currentFilter)
-            return;
-
-        _logger.LogInformation("Swapping filter to: '{Filter}'", newFilter);
-
-        lock (_handleLock)
-        {
-            var oldHandle = _networkHandle;
-            _networkHandle = WinDivertNative.InvalidHandle;
-
-            if (oldHandle != WinDivertNative.InvalidHandle)
-            {
-                WinDivertNative.WinDivertShutdown(oldHandle, WinDivertNative.Shutdown.Both);
-                WinDivertNative.WinDivertClose(oldHandle);
-            }
-
-            _currentFilter = newFilter;
-            OpenNetworkHandle(newFilter);
-        }
+        _currentFilter = "false";
     }
 
     private string ResolveFilterString()
     {
-        if (_filterMode == FilterMode.ProcessPorts && _targetProcessId != 0)
+        _scopedConnections = [];
+        _targetProcess?.Dispose();
+        _targetProcess = null;
+        if (_targetProcessId == 0) return "false";
+        try
         {
-            var ports = _scanner.GetLocalPortsForProcess(_targetProcessId);
-            foreach (var p in _flowTracker.GetActivePorts())
-                ports.Add(p);
-
-            return _filterBuilder.GetFilter(FilterMode.ProcessPorts, ports);
+            _targetProcess = Process.GetProcessById((int)_targetProcessId);
+            if (_targetProcess.HasExited) return "false";
+            _ = _targetProcess.Handle; // Bind identity to this process, not a reusable PID.
+            _scopedConnections = ReadEndpoints().Where(e => e.Protocol == 6 && e.LocalPort != 0 &&
+                e.RemotePort != 0 && e.LocalAddr != 0 && e.RemoteAddr != 0).Distinct().ToArray();
+            string restriction = _filterMode == FilterMode.ProcessPorts ? "true" :
+                _filterBuilder.GetFilter(_filterMode, null, _customFilter);
+            if (restriction == "false") return "false";
+            return FilterBuilder.BuildScopedFilter(_scopedConnections, restriction);
         }
-
-        return _filterBuilder.GetFilter(_filterMode, null, _customFilter);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Target scope unavailable");
+            return "false";
+        }
     }
 
     public void Stop()
@@ -344,7 +345,6 @@ public sealed class PacketEngine : IDisposable
             _isRunning = false;
         }
 
-        _flowTracker.PortsChanged -= OnPortsChanged;
         _flowTracker.Stop();
 
         _cts?.Cancel();
@@ -359,10 +359,8 @@ public sealed class PacketEngine : IDisposable
 
         try
         {
-            if (_captureTask != null)
-                _captureTask.Wait(TimeSpan.FromSeconds(2));
-            if (_throttleReleaseTask != null)
-                _throttleReleaseTask.Wait(TimeSpan.FromSeconds(2));
+            _captureTask?.GetAwaiter().GetResult();
+            _throttleReleaseTask?.GetAwaiter().GetResult();
         }
         catch { }
 
@@ -378,6 +376,10 @@ public sealed class PacketEngine : IDisposable
         _cts = null;
 
         _stateMachine.ForceIdle();
+        ActiveDiagnosticMode = DiagnosticMode.None;
+        _targetProcess?.Dispose();
+        _targetProcess = null;
+        _scopedConnections = [];
         _logger.LogInformation("PacketEngine stopped safely.");
     }
 
@@ -447,7 +449,9 @@ public sealed class PacketEngine : IDisposable
 
         try
         {
-            while (!ct.IsCancellationRequested && _isRunning)
+            // Shutdown(Recv) stops new interceptions. Drain pending packets while
+            // the handle still supports sending, instead of dropping them on close.
+            while (true)
             {
                 IntPtr currentHandle;
                 lock (_handleLock)
@@ -457,6 +461,7 @@ public sealed class PacketEngine : IDisposable
 
                 if (currentHandle == WinDivertNative.InvalidHandle)
                 {
+                    if (ct.IsCancellationRequested) break;
                     Thread.Sleep(20);
                     continue;
                 }
@@ -511,16 +516,18 @@ public sealed class PacketEngine : IDisposable
 
             bool active = _stateMachine.Current == DesyncStateMachine.State.Active;
 
-            // Diagnostic Mode evaluation: restricted strictly to authorized test traffic
-            if (active && _activeDiagnosticMode != DiagnosticMode.None)
+            // All effects, including legacy drop/throttle, require live ownership.
+            // Driver-free scheduling tests use SendOverride without starting capture.
+            if ((_isRunning || _activeDiagnosticMode != DiagnosticMode.None) &&
+                !IsAuthorizedTraffic(packetBuffer, recvLen, addr))
             {
-                if (!IsAuthorizedTraffic(packetBuffer, recvLen, addr))
-                {
-                    // Pass through unauthorized / third-party traffic immediately without interference
-                    RecordSend(SendPacket(packetBuffer, recvLen, addr));
-                    return false;
-                }
+                RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                return false;
+            }
 
+            // Diagnostic Mode evaluation: restricted strictly to authorized test traffic
+            if (!_stopping && active && _activeDiagnosticMode != DiagnosticMode.None)
+            {
                 switch (_activeDiagnosticMode)
                 {
                     case DiagnosticMode.OutboundFreeze:
@@ -534,6 +541,12 @@ public sealed class PacketEngine : IDisposable
                             }
                             else
                             {
+                                // Bound retained memory even under a saturated sender.
+                                if (_throttleQueue.Count >= 512 || recvLen > WinDivertNative.MtuMax)
+                                {
+                                    RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                                    return false;
+                                }
                                 var packetCopy = new byte[recvLen];
                                 Marshal.Copy(packetBuffer, packetCopy, 0, (int)recvLen);
                                 long now = _timestamp();
@@ -623,6 +636,11 @@ public sealed class PacketEngine : IDisposable
             }
             else if (shouldThrottle)
             {
+                if (_throttleQueue.Count >= 512 || recvLen > WinDivertNative.MtuMax)
+                {
+                    RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                    return false;
+                }
                 // THROTTLE PACKET: Queue packet in memory
                 var packetCopy = new byte[recvLen];
                 Marshal.Copy(packetBuffer, packetCopy, 0, (int)recvLen);
@@ -655,25 +673,27 @@ public sealed class PacketEngine : IDisposable
     /// </summary>
     public bool IsAuthorizedTraffic(IntPtr packetBuffer, uint recvLen, WinDivertNative.Address addr)
     {
-        // 1. Loopback traffic is always local test traffic
-        if (addr.Loopback)
-            return true;
-
         if (!TryExtractIpAndPorts(packetBuffer, recvLen, out var srcIp, out var dstIp, out var srcPort, out var dstPort))
         {
             // If headers cannot be parsed, pass through safely without drop
             return false;
         }
 
-        // 2. If target process is active, verify against discovered ports
-        if (_targetProcessId != 0)
+        if (Marshal.ReadByte(packetBuffer, 0) >> 4 != 4 || Marshal.ReadByte(packetBuffer, 9) != 6)
+            return false;
+        try
         {
-            var ports = _flowTracker.GetActivePorts();
-            if (ports.Count > 0 && (ports.Contains(srcPort) || ports.Contains(dstPort)))
-                return true;
+            if (!(TargetAliveOverride?.Invoke() ?? (_targetProcess != null && !_targetProcess.HasExited))) return false;
+            var localIp = addr.Outbound ? srcIp : dstIp;
+            var remoteIp = addr.Outbound ? dstIp : srcIp;
+            ushort localPort = addr.Outbound ? srcPort : dstPort;
+            ushort remotePort = addr.Outbound ? dstPort : srcPort;
+            // Revalidate the full tuple, not either port or an arbitrary loopback packet.
+            return ReadEndpoints().Any(e => e.Protocol == 6 && e.LocalPort == localPort &&
+                e.RemotePort == remotePort && new System.Net.IPAddress(e.LocalAddr).Equals(localIp) &&
+                new System.Net.IPAddress(e.RemoteAddr).Equals(remoteIp));
         }
-
-        return false;
+        catch { return false; }
     }
 
     private static bool TryExtractIpAndPorts(
@@ -694,7 +714,9 @@ public sealed class PacketEngine : IDisposable
         if (version == 4)
         {
             int ihl = (b0 & 0x0F) * 4;
-            if (length < ihl) return false;
+            if (ihl < 20 || length < ihl + 20) return false;
+            // Reject fragments: no reliable transport tuple on every fragment.
+            if ((Marshal.ReadByte(buffer, 6) & 0x3F) != 0 || Marshal.ReadByte(buffer, 7) != 0) return false;
 
             byte protocol = Marshal.ReadByte(buffer, 9);
 
@@ -768,7 +790,9 @@ public sealed class PacketEngine : IDisposable
         }
     }
 
-    private bool IsThrottleEffective => _isThrottleActive || (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active));
+    private bool IsThrottleEffective => (_activeDiagnosticMode == DiagnosticMode.OutboundFreeze &&
+        _stateMachine.Current == DesyncStateMachine.State.Active) || _isThrottleActive ||
+        (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active));
 
     private bool TryReleaseNext(long now)
     {
@@ -862,33 +886,6 @@ public sealed class PacketEngine : IDisposable
             Volatile.Read(ref _packetsThrottled));
     }
 
-    private void PortRefreshLoop(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested && _isRunning)
-        {
-            try
-            {
-                ct.WaitHandle.WaitOne(2000);
-                if (ct.IsCancellationRequested)
-                    break;
-
-                if (_filterMode == FilterMode.ProcessPorts)
-                {
-                    UpdateFilter(_filterMode, _targetProcessId, _customFilter);
-                }
-            }
-            catch (OperationCanceledException) { break; }
-            catch { }
-        }
-    }
-
-    private void OnPortsChanged()
-    {
-        if (_isRunning && _filterMode == FilterMode.ProcessPorts)
-        {
-            Task.Run(() => UpdateFilter(_filterMode, _targetProcessId, _customFilter));
-        }
-    }
 
     public void Dispose()
     {

@@ -6,8 +6,7 @@ namespace DarkDesync.Services;
 
 /// <summary>
 /// Global keyboard hook service for hotkey detection.
-/// Supports dedicated hotkeys for Drop and Throttle with debounce protection,
-/// repeat prevention, and optional foreground window checking.
+/// One configured pass-through hotkey, physical key edge detection and optional focus checking.
 /// </summary>
 public sealed class HotkeyService : IDisposable
 {
@@ -16,46 +15,25 @@ public sealed class HotkeyService : IDisposable
     private IntPtr _hookId = IntPtr.Zero;
     private LowLevelKeyboardProc? _hookProc; // prevent GC
     private int _dropHotkeyVirtualKey = 0x20;     // VK_SPACE (Drop default)
-    private int _throttleHotkeyVirtualKey = 0x54; // VK_T (Throttle default)
+
 
     private IntPtr _targetWindowHandle = IntPtr.Zero;
     private volatile bool _enabled;
-    private long _lastDropTriggerTick;
-    private long _lastThrottleTriggerTick;
+    private readonly HashSet<int> _heldKeys = new();
 
-    public int DebounceMs { get; set; } = 100;
-
-    /// <summary>Raised when the Drop hotkey is pressed.</summary>
-    public event Action? DropHotkeyPressed;
-
-    /// <summary>Raised when the Throttle hotkey is pressed.</summary>
-    public event Action? ThrottleHotkeyPressed;
-
-    /// <summary>Legacy alias for DropHotkeyPressed.</summary>
-    public event Action? HotkeyPressed
-    {
-        add => DropHotkeyPressed += value;
-        remove => DropHotkeyPressed -= value;
-    }
+    public event Action? HotkeyPressed;
 
     public HotkeyService(ILogger<HotkeyService> logger)
     {
         _logger = logger;
     }
 
-    public void SetDropHotkey(int virtualKeyCode)
+    public void SetHotkey(int virtualKeyCode)
     {
         _dropHotkeyVirtualKey = virtualKeyCode;
-        _logger.LogInformation("Drop hotkey set to VK: 0x{Key:X2}", virtualKeyCode);
+        _logger.LogInformation("Global hotkey set to VK: 0x{Key:X2}", virtualKeyCode);
     }
 
-    public void SetHotkey(int virtualKeyCode) => SetDropHotkey(virtualKeyCode);
-
-    public void SetThrottleHotkey(int virtualKeyCode)
-    {
-        _throttleHotkeyVirtualKey = virtualKeyCode;
-        _logger.LogInformation("Throttle hotkey set to VK: 0x{Key:X2}", virtualKeyCode);
-    }
 
     public void SetTargetWindow(IntPtr hwnd)
     {
@@ -71,13 +49,13 @@ public sealed class HotkeyService : IDisposable
         _hookId = SetHook(_hookProc);
         _enabled = true;
 
-        _logger.LogInformation("Keyboard hook installed. Drop: 0x{Drop:X2}, Throttle: 0x{Throttle:X2}",
-            _dropHotkeyVirtualKey, _throttleHotkeyVirtualKey);
+        _logger.LogInformation("Keyboard hook installed. Global key: 0x{Key:X2}", _dropHotkeyVirtualKey);
     }
 
     public void Uninstall()
     {
         _enabled = false;
+        _heldKeys.Clear();
 
         if (_hookId != IntPtr.Zero)
         {
@@ -132,52 +110,28 @@ public sealed class HotkeyService : IDisposable
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && _enabled && wParam == (IntPtr)WM_KEYDOWN)
+        if (nCode >= 0 && _enabled)
         {
             int vkCode = Marshal.ReadInt32(lParam);
             int flags = Marshal.ReadInt32(lParam, 8);
-            bool isInjected = (flags & 0x10) != 0;
-
-            if (!isInjected)
+            if ((flags & 0x10) == 0)
             {
-                long now = Stopwatch.GetTimestamp();
-
-                // 1. Drop Hotkey Check
-                if (vkCode == _dropHotkeyVirtualKey)
-                {
-                    long lastTick = Interlocked.Read(ref _lastDropTriggerTick);
-                    double elapsedMs = (now - lastTick) * 1000.0 / Stopwatch.Frequency;
-
-                    if (elapsedMs >= DebounceMs)
-                    {
-                        if (_targetWindowHandle == IntPtr.Zero || IsTargetForeground())
-                        {
-                            Interlocked.Exchange(ref _lastDropTriggerTick, now);
-                            _logger.LogDebug("Drop hotkey triggered");
-                            ThreadPool.QueueUserWorkItem(_ => DropHotkeyPressed?.Invoke());
-                        }
-                    }
-                }
-                // 2. Throttle Hotkey Check
-                else if (vkCode == _throttleHotkeyVirtualKey)
-                {
-                    long lastTick = Interlocked.Read(ref _lastThrottleTriggerTick);
-                    double elapsedMs = (now - lastTick) * 1000.0 / Stopwatch.Frequency;
-
-                    if (elapsedMs >= DebounceMs)
-                    {
-                        if (_targetWindowHandle == IntPtr.Zero || IsTargetForeground())
-                        {
-                            Interlocked.Exchange(ref _lastThrottleTriggerTick, now);
-                            _logger.LogDebug("Throttle hotkey triggered");
-                            ThreadPool.QueueUserWorkItem(_ => ThrottleHotkeyPressed?.Invoke());
-                        }
-                    }
-                }
+                bool down = wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)0x0104;
+                bool up = wParam == (IntPtr)0x0101 || wParam == (IntPtr)0x0105;
+                if ((down || up) && AcceptKeyTransition(vkCode, down) &&
+                    (_targetWindowHandle == IntPtr.Zero || IsTargetForeground()))
+                    HotkeyPressed?.Invoke();
             }
         }
 
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    // One physical press per pulse, even if held longer than a complete cycle.
+    internal bool AcceptKeyTransition(int key, bool down)
+    {
+        if (!down) { _heldKeys.Remove(key); return false; }
+        return _heldKeys.Add(key) && key == _dropHotkeyVirtualKey;
     }
 
     private bool IsTargetForeground()

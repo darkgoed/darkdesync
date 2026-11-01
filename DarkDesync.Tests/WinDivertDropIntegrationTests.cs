@@ -1,105 +1,67 @@
+using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using DarkDesync.Core;
+using DarkDesync.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace DarkDesync.Tests;
 
+public sealed class DriverTheoryAttribute : TheoryAttribute
+{
+    public DriverTheoryAttribute()
+    {
+        if (Environment.GetEnvironmentVariable("DARKDESYNC_DRIVER_TESTS") != "1")
+            Skip = "Requires Windows administrator and explicit DARKDESYNC_DRIVER_TESTS=1; loopback only.";
+    }
+}
+
 public class WinDivertDropIntegrationTests
 {
-    [Fact]
-    public async Task PacketEngine_WithOutboundFilter_CapturesAndDropsPacketsWhenActive()
+    [DriverTheory]
+    [Trait("Category", "Driver")]
+    [InlineData(DiagnosticMode.OutboundFreeze)]
+    [InlineData(DiagnosticMode.BurstLoss)]
+    [InlineData(DiagnosticMode.AsymmetricLoss)]
+    public async Task ScopedTcpLoopback_EffectAndRestoration(DiagnosticMode mode)
     {
-        var stateMachine = new DesyncStateMachine();
-        var scanner = new ProcessNetworkScanner(NullLogger<ProcessNetworkScanner>.Instance);
-        var filterBuilder = new FilterBuilder(NullLogger<FilterBuilder>.Instance);
-        var flowTracker = new FlowTracker(NullLogger<FlowTracker>.Instance);
-        var engine = new PacketEngine(
-            NullLogger<PacketEngine>.Instance,
-            scanner,
-            filterBuilder,
-            flowTracker,
-            stateMachine);
-
-        // 1. Start engine with Outbound filter (Clumsy default)
-        bool started = engine.Start(FilterMode.Outbound, processId: 0, dropPercentage: 100);
-        if (!started)
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var client = new TcpClient(AddressFamily.InterNetwork) { NoDelay = true };
+        await client.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
+        using var server = await listener.AcceptTcpClientAsync();
+        server.NoDelay = true;
+        var local = (IPEndPoint)client.Client.LocalEndPoint!;
+        var remote = (IPEndPoint)client.Client.RemoteEndPoint!;
+        using var engine = DiagnosticModesTests.Engine();
+        engine.CycleDropEnabled = false;
+        engine.BurstLossPercentage = engine.AsymmetricOutboundLossPercentage = 100;
+        string? error = null; engine.ErrorOccurred += e => error = e;
+        // Restrict both the PID-owned tuple and this one outgoing loopback direction.
+        string filter = $"loopback and outbound and tcp.SrcPort == {local.Port} and tcp.DstPort == {remote.Port}";
+        Assert.True(engine.Start(FilterMode.Custom, (uint)Environment.ProcessId, customFilter: filter), error);
+        using var controller = new DesyncController(NullLogger<DesyncController>.Instance, engine.StateMachine, engine);
+        Assert.True(controller.TriggerCycle(mode, 300));
+        byte[] received = new byte[1];
+        var receive = server.GetStream().ReadExactlyAsync(received).AsTask();
+        var watch = Stopwatch.StartNew();
+        await client.GetStream().WriteAsync(new byte[] { 71 });
+        await Task.Delay(80);
+        Assert.False(receive.IsCompleted, "Target payload bypassed the effect");
+        await receive.WaitAsync(TimeSpan.FromSeconds(8));
+        Assert.Equal(71, received[0]);
+        Assert.True(watch.ElapsedMilliseconds >= 250);
+        if (mode == DiagnosticMode.OutboundFreeze)
         {
-            // If WinDivert driver cannot be loaded in this specific test runner context, skip
-            return;
+            Assert.True(engine.PacketsThrottled > 0); Assert.Equal(0, engine.PacketsDropped);
         }
-
-        try
-        {
-            await Task.Delay(100); // Give capture thread a moment to initialize
-
-            // In IDLE state, send UDP packets -> should be intercepted and PASSED through
-            using (var udpClient = new UdpClient())
-            {
-                byte[] testData = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
-                for (int i = 0; i < 5; i++)
-                {
-                    udpClient.Send(testData, testData.Length, "8.8.8.8", 53);
-                    await Task.Delay(20);
-                }
-            }
-
-            await Task.Delay(200);
-            long initialIntercepted = engine.PacketsIntercepted;
-            long initialDropped = engine.PacketsDropped;
-            long initialPassed = engine.PacketsPassedThrough;
-
-            Assert.True(initialIntercepted > 0, $"Expected intercepted packets in IDLE, but got {initialIntercepted}");
-            Assert.Equal(0, initialDropped); // No drops in IDLE state
-
-            // 2. Activate state machine -> ACTIVE (Drop mode)
-            bool actOk = stateMachine.TryActivate();
-            Assert.True(actOk);
-            Assert.Equal(DesyncStateMachine.State.Active, stateMachine.Current);
-
-            // Send UDP packets during ACTIVE state -> MUST be DROPPED!
-            using (var udpClient = new UdpClient())
-            {
-                byte[] testData = new byte[] { 9, 8, 7, 6, 5, 4, 3, 2 };
-                for (int i = 0; i < 10; i++)
-                {
-                    udpClient.Send(testData, testData.Length, "1.1.1.1", 53);
-                    await Task.Delay(20);
-                }
-            }
-
-            await Task.Delay(300);
-            long droppedCount = engine.PacketsDropped;
-
-            // 3. Verify packet drop occurred
-            Assert.True(droppedCount > 0, $"Expected dropped packets during ACTIVE state, but got {droppedCount}");
-
-            // 4. Restore traffic -> RESTORING -> IDLE
-            stateMachine.TryBeginRestore();
-            await Task.Delay(50);
-            stateMachine.TryComplete();
-            Assert.Equal(DesyncStateMachine.State.Idle, stateMachine.Current);
-
-            // Send packets in restored IDLE state -> should pass through again
-            long droppedBefore = engine.PacketsDropped;
-            using (var udpClient = new UdpClient())
-            {
-                byte[] testData = new byte[] { 1, 1, 1, 1 };
-                for (int i = 0; i < 5; i++)
-                {
-                    udpClient.Send(testData, testData.Length, "8.8.8.8", 53);
-                    await Task.Delay(20);
-                }
-            }
-
-            await Task.Delay(200);
-            // Confirm no further drops after restoration
-            Assert.Equal(droppedBefore, engine.PacketsDropped);
-        }
-        finally
-        {
-            engine.Stop();
-            engine.Dispose();
-        }
+        else Assert.True(engine.PacketsDropped > 0);
+        // Normal traffic must resume on the same socket without changing the filter.
+        await client.GetStream().WriteAsync(new byte[] { 72 });
+        await server.GetStream().ReadExactlyAsync(received).AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(72, received[0]);
+        Assert.Equal(DiagnosticMode.None, engine.ActiveDiagnosticMode);
+        engine.Stop(); Assert.False(engine.IsRunning);
     }
 }

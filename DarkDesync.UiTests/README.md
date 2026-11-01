@@ -1,14 +1,9 @@
-# Verificação UI segura (Windows / WPF / STA)
+# Smoke WPF (Windows, STA)
 
-Executar da raiz do repositório, sem fechar a aplicação já aberta:
+Na raiz, com SDK .NET 8 x64:
 
-```bash
-dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release -p:OutputPath=bin/UiVerification/net8.0-windows/
-dotnet DarkDesync.UiTests/bin/UiVerification/net8.0-windows/DarkDesync.UiTests.dll --render
-```
+    dotnet run --project DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release
 
-Este harness é isolado da suíte de integração. Não chama WinDivertOpen, não instala hooks, não inicia ciclos e não mostra janelas. A construção do ViewModel usa o motor real parado, com guardas de código-fonte antes da construção. A sincronização de EnsureEngineRunning é exercitada com uma sentinela privada temporária `IsRunning`, restaurada imediatamente: isso evita o caminho nativo `Start`.
+Abre a MainWindow real e verifica árvore visual, bindings, seletor único de efeito, duração 0–800 ms, perdas, atalho e persistência em JSON temporário isolado. Não inicia captura nem carrega o driver; instala/desinstala o hook normal da janela, sem emitir teclas sintéticas. O pulso de duração zero é verificado como no-op. Erros de binding ou asserções encerram com código 1.
 
-O XAML de produção é carregado após remover apenas `x:Class` e handlers de chrome. A árvore real é medida e renderizada por `RenderTargetBitmap` em STA; bindings de controles, comandos, logs e jitter two-way são verificados. A imagem resultante é `DarkDesync/visual-verification.png`. Nenhuma chamada ao construtor de MainWindow/Loaded é feita.
-
-O diretório de saída separado evita sobrescrever o EXE aberto pelo usuário. Não use `dotnet run -p:OutputPath=...`: o comando run pode procurar o executável no caminho convencional em vez do caminho sobrescrito. Use build + execução da DLL explicitamente.
+O GitHub Actions executa este smoke separadamente dos testes WinDivert. Não é evidência de pulo físico, compatibilidade com jogos/anticheat ou execução do driver.

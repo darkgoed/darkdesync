@@ -99,7 +99,7 @@ public sealed class ProcessNetworkScanner
             for (int i = 0; i < numEntries; i++)
             {
                 var row = Marshal.PtrToStructure<MIB_TCPROW_OWNER_PID>(rowPtr);
-                if (row.dwOwningPid == processId)
+                if (row.dwOwningPid == processId && row.dwState == 5)
                 {
                     ushort localPort = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)row.dwLocalPort);
                     ushort remotePort = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)row.dwRemotePort);
