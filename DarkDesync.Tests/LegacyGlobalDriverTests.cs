@@ -127,6 +127,58 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
         output.WriteLine("Independent engine watchdog closed global handle without controller restoration.");
     }
 
+    [GlobalDriverTheory]
+    [Trait("Category", "Driver")]
+    [InlineData(DiagnosticMode.None)]
+    [InlineData(DiagnosticMode.OutboundFreeze)]
+    [InlineData(DiagnosticMode.BurstLoss)]
+    public async Task GlobalStartStop_RunsBeyond800ms_AndStopReleasesTraffic(DiagnosticMode mode)
+    {
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        using var sender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
+        using var engine = DiagnosticModesTests.Engine();
+        // Merely selecting GLOBAL never opens WinDivert or changes other applications.
+        engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
+        Assert.False(engine.IsRunning);
+        Assert.Equal("false", engine.CurrentFilter);
+        engine.BurstLossPercentage = 100;
+        engine.CycleDropEnabled = true;
+        engine.SetDropPercentage(100);
+        Assert.True(engine.BeginLegacyGlobalContinuous(mode));
+        try
+        {
+            Assert.True(engine.IsRunning);
+            Assert.Equal("outbound", engine.CurrentFilter);
+            Assert.Equal(DesyncStateMachine.State.Active, engine.StateMachine.Current);
+            // Above the former 800 ms cap: only STOP, close, or a failure should end capture.
+            await Task.Delay(1050);
+            Assert.True(engine.IsRunning);
+            var pending = receiver.ReceiveAsync();
+            await sender.SendAsync(new byte[] { 41 }, 1);
+            await Until(() => mode == DiagnosticMode.OutboundFreeze ?
+                engine.UdpPacketsHeld > 0 : engine.UdpPacketsDropped > 0);
+            Assert.False(pending.IsCompleted, "START must apply the selected effect, not just pass traffic through");
+            engine.Stop();
+            Assert.False(engine.IsRunning);
+            Assert.Equal("false", engine.CurrentFilter);
+            if (mode == DiagnosticMode.OutboundFreeze)
+            {
+                Assert.Equal(new byte[] { 41 }, (await pending.WaitAsync(TimeSpan.FromSeconds(2))).Buffer);
+                pending = receiver.ReceiveAsync();
+            }
+            long captured = engine.PacketsIntercepted;
+            await sender.SendAsync(new byte[] { 42 }, 1);
+            Assert.Equal(new byte[] { 42 }, (await pending.WaitAsync(TimeSpan.FromSeconds(2))).Buffer);
+            Assert.Equal(captured, engine.PacketsIntercepted);
+        }
+        finally
+        {
+            engine.Stop();
+        }
+        output.WriteLine($"GLOBAL {mode}: active after 1050ms, STOP restored normal traffic");
+    }
+
     private static async Task Until(Func<bool> ready)
     {
         var clock = Stopwatch.StartNew();

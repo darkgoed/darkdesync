@@ -72,7 +72,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _selectedFilterModeText, value))
             {
-                LegacyGlobalConsent = false;
                 OnPropertyChanged(nameof(IsLegacyGlobalSelected));
                 OnPropertyChanged(nameof(IsStrictCaptureMode));
                 OnPropertyChanged(nameof(IsGlobalDropVisible));
@@ -104,20 +103,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public bool IsLegacyGlobalSelected => GetFilterMode() == FilterMode.LegacyGlobalOutbound;
     public bool IsStrictCaptureMode => !IsLegacyGlobalSelected;
     public bool IsGlobalDropVisible => IsLegacyGlobalSelected && _selectedDiagnosticModeText == "Desativado";
-    private bool _legacyGlobalConsent;
-    public bool LegacyGlobalConsent
-    {
-        get => _legacyGlobalConsent;
-        set
-        {
-            if (!SetProperty(ref _legacyGlobalConsent, value && IsLegacyGlobalSelected)) return;
-            if (!_legacyGlobalConsent)
-            {
-                _controller.CancelCycle();
-                _packetEngine?.EndLegacyGlobalPulse();
-            }
-        }
-    }
 
     // Properties
     private ProcessInfo? _selectedProcess;
@@ -312,6 +297,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (SetProperty(ref _selectedDiagnosticModeText, value))
             {
                 _controller.CancelCycle();
+                if (IsLegacyGlobalSelected && _packetEngine?.IsRunning == true)
+                {
+                    _packetEngine.Stop();
+                    AddLog("[GLOBAL] Efeito alterado: STOP automático. Confira o perfil e pressione START.");
+                    RefreshNetworkDiagnostics();
+                }
                 OnPropertyChanged(nameof(IsBurstLossVisible));
                 OnPropertyChanged(nameof(IsAsymmetricLossVisible));
                 OnPropertyChanged(nameof(IsDiagnosticModeSelected));
@@ -322,8 +313,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
     public bool IsBurstLossVisible => _selectedDiagnosticModeText == "Burst Loss";
     public bool IsAsymmetricLossVisible => _selectedDiagnosticModeText == "Asymmetric Loss";
-    public bool IsDiagnosticModeSelected => _selectedDiagnosticModeText != "Desativado" || IsLegacyGlobalSelected;
-    public bool IsLegacyModeSelected => !IsDiagnosticModeSelected;
+    public bool IsDiagnosticModeSelected => !IsLegacyGlobalSelected && _selectedDiagnosticModeText != "Desativado";
+    public bool IsLegacyModeSelected => !IsDiagnosticModeSelected && !IsLegacyGlobalSelected;
 
     // Diagnostic properties (0–800 ms, default 150 ms)
     private int _diagnosticCycleDurationMs = 150;
@@ -473,13 +464,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public string EngineToggleText => IsLegacyGlobalSelected ? "GLOBAL: só pulso" : (_packetEngine?.IsCaptureRequested ?? IsEngineRunning) ? "Parar Captura" : "Iniciar Captura";
+    public string EngineToggleText => (_packetEngine?.IsCaptureRequested ?? IsEngineRunning) ? "STOP" : "START";
     public string NetworkDiagnosticsText
     {
         get
         {
             var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
-            if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? "PULSO ATIVO" : "sem captura global fora do pulso")}\nConsentimento: {(LegacyGlobalConsent ? "explícito nesta sessão" : "NÃO concedido; bloqueado")}\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
+            if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? "START ativo até STOP" : "STOP / parado")}\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
             return $"PID {s.ProcessId} • FLOW {(s.Observing ? "armado" : "inativo")} • NETWORK {(s.Running ? "ativo" : s.Requested ? "aguardando tupla" : "parado")}\nTCP: observados {s.TcpObserved}, escopados {s.TcpScoped} | UDP: sockets {s.UdpBindings}, fluxos observados {s.UdpObserved}, elegíveis {s.UdpEligible}, escopados {s.UdpScoped}\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
         }
     }
@@ -706,9 +697,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void ExecuteTriggerCycle(string source)
     {
-        if (IsLegacyGlobalSelected && (!LegacyGlobalConsent || !CycleProfileEnabled))
+        if (IsLegacyGlobalSelected)
         {
-            AddLog("[GLOBAL BLOQUEADO] Opt-in explícito obrigatório para todas as conexões do Windows; habilite o perfil. Nenhum handle global aberto.");
+            AddLog("[GLOBAL] Para o Outbound legado, selecione o efeito e use START/STOP. Não há pulso obrigatório.");
             return;
         }
         if (!CycleProfileEnabled && !(ThrottleEnabled && SelectedThrottleMode == ThrottleModeOptions[0]))
@@ -740,8 +731,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         };
 
         AddLog($"[ACIONAMENTO] {source}; escopo: {(IsLegacyGlobalSelected ? "GLOBAL" : "PID estrito")}; efeito: {diagMode}; duração de pulso configurada: {DiagnosticCycleDurationMs} ms");
-        bool cycleStarted = _controller.TriggerCycle(diagMode, DiagnosticCycleDurationMs,
-            legacyGlobal: IsLegacyGlobalSelected, globalConsent: LegacyGlobalConsent);
+        bool cycleStarted = _controller.TriggerCycle(diagMode, DiagnosticCycleDurationMs);
         if (!cycleStarted) AddLog("[AVISO] Não foi possível iniciar ciclo.");
     }
 
@@ -756,7 +746,32 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         if (IsLegacyGlobalSelected)
         {
-            AddLog("[GLOBAL] Captura contínua proibida. Use Pulso manual ou o atalho global já configurado.");
+            if (_packetEngine == null) return;
+            if (_packetEngine.IsRunning || _packetEngine.IsCaptureRequested)
+            {
+                _packetEngine.Stop();
+                _controller.CancelCycle();
+                AddLog("[GLOBAL] STOP: captura encerrada e pacotes retidos liberados.");
+            }
+            else
+            {
+                _controller.CancelCycle();
+                EnsureEngineRunning(startCapture: false);
+                _packetEngine.CycleDropEnabled = true; // Legacy loss remains usable without a timed profile.
+                _packetEngine.SetDropPercentage(DropPercentage);
+                var effect = _selectedDiagnosticModeText switch
+                {
+                    "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
+                    "Burst Loss" => DiagnosticMode.BurstLoss,
+                    "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
+                    _ => DiagnosticMode.None
+                };
+                bool started = _packetEngine.BeginLegacyGlobalContinuous(effect);
+                AddLog(started
+                    ? $"[GLOBAL] START: filtro outbound, efeito {effect}, ativo continuamente até STOP."
+                    : "[GLOBAL] Não foi possível iniciar. Verifique driver/administrador e diagnóstico.");
+            }
+            RefreshNetworkDiagnostics();
             return;
         }
         if (_packetEngine?.IsCaptureRequested ?? IsEngineRunning)
@@ -817,7 +832,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void ApplySettings(AppSettings settings)
     {
-        LegacyGlobalConsent = false;
         var s = settings.Validate();
         _controller.CancelCycle();
         _packetEngine?.Stop();
@@ -842,7 +856,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SelectedFilterModeText = s.FilterMode switch
         {
             FilterMode.AllTraffic => FilterModeOptions[1], FilterMode.ProcessPorts => FilterModeOptions[2],
-            FilterMode.Custom => FilterModeOptions[3], _ => FilterModeOptions[0]
+            FilterMode.Custom => FilterModeOptions[3], FilterMode.LegacyGlobalOutbound => FilterModeOptions[4],
+            _ => FilterModeOptions[0]
         };
         CustomFilterText = s.CustomFilter;
         ApplyFilterMode();
