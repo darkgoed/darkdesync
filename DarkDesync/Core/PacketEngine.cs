@@ -289,7 +289,7 @@ public sealed class PacketEngine : IDisposable
     {
         if (mode == FilterMode.LegacyGlobalOutbound || _filterMode == FilterMode.LegacyGlobalOutbound)
         {
-            ErrorOccurred?.Invoke("Captura GLOBAL bloqueada: use somente pulso limitado com consentimento explícito; captura contínua não permitida.");
+            ErrorOccurred?.Invoke("Use START/STOP no modo Outbound legado. A seleção isolada não inicia captura.");
             return false;
         }
         if (_disposed || _isRunning) return false;
@@ -468,6 +468,60 @@ public sealed class PacketEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs selected global outbound effect until STOP. Selecting the filter alone never opens the driver.
+    /// Unlike the legacy timed pulse, this is a user-controlled continuous capture.
+    /// </summary>
+    public bool BeginLegacyGlobalContinuous(DiagnosticMode mode)
+    {
+        lock (_lifecycleLock)
+        {
+            if (_disposed || !Enum.IsDefined(mode) || _filterMode != FilterMode.LegacyGlobalOutbound ||
+                _isRunning || _legacyPulseActive || _captureRequested ||
+                _stateMachine.Current != DesyncStateMachine.State.Idle)
+                return false;
+
+            if (!_stateMachine.TryActivate()) return false;
+            _legacyPulseActive = true;
+            _captureRequested = true;
+            _activeDiagnosticMode = mode;
+            _lastCaptureError = null;
+            Interlocked.Exchange(ref _safetyStopRequested, 0);
+            // A permanent user-controlled lease. Only STOP, close, mode change, or failure ends it.
+            Interlocked.Exchange(ref _legacyDeadlineTicks, long.MaxValue);
+            Interlocked.Exchange(ref _packetsIntercepted, 0);
+            Interlocked.Exchange(ref _packetsDropped, 0);
+            Interlocked.Exchange(ref _packetsPassedThrough, 0);
+            Interlocked.Exchange(ref _packetsThrottled, 0);
+            Interlocked.Exchange(ref _tcpIntercepted, 0);
+            Interlocked.Exchange(ref _udpIntercepted, 0);
+            Interlocked.Exchange(ref _tcpDropped, 0);
+            Interlocked.Exchange(ref _udpDropped, 0);
+            Interlocked.Exchange(ref _tcpHeld, 0);
+            Interlocked.Exchange(ref _udpHeld, 0);
+            try
+            {
+                ReplaceNetworkScope("outbound", []);
+                if (!_isRunning)
+                {
+                    StopCore();
+                    PublishGlobalStatus();
+                    return false;
+                }
+                PublishGlobalStatus();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _lastCaptureError = "GLOBAL: falha ao iniciar: " + ex.Message;
+                StopCore();
+                PublishGlobalStatus();
+                ErrorOccurred?.Invoke(_lastCaptureError);
+                return false;
+            }
+        }
+    }
+
     public bool BeginLegacyGlobalPulse(int durationMs, bool consent)
     {
         lock (_lifecycleLock)
@@ -517,8 +571,8 @@ public sealed class PacketEngine : IDisposable
 
     private void PublishGlobalStatus() => Volatile.Write(ref _scopeStatus,
         new CaptureScopeStatus(0, false, _legacyPulseActive, _isRunning, 0, 0, 0, 0, 0, 0,
-            "GLOBAL — todos os aplicativos/conexões de saída do Windows. Somente pulso 0–800 ms com opt-in por sessão; não identifica Roblox. Freeze retém e libera, não descarta.",
-            _legacyPulseActive && _isRunning ? "outbound" : "false", "GLOBAL: filtro literal outbound, SEM restrição por PID. Não há modo contínuo."));
+            "GLOBAL — todas as conexões de saída do Windows. START mantém o efeito escolhido até STOP; não identifica Roblox. Freeze retém e libera, não descarta.",
+            _legacyPulseActive && _isRunning ? "outbound" : "false", "GLOBAL: filtro literal outbound, SEM restrição por PID. START/STOP contínuo."));
 
     // WinDivert has no in-place filter update. Break-before-make: no overlapping
     // handles/double effects. During the bounded turnover traffic passes normally.
@@ -1131,7 +1185,7 @@ public sealed class PacketEngine : IDisposable
         {
             Interlocked.Increment(ref _packetsDropped);
             _logger.LogWarning("Packet reinjection failed; counted as dropped, not delivered.");
-            if (_legacyPulseActive) RequestSafetyStop("GLOBAL: reinjeção falhou; pulso encerrado por segurança.");
+            if (_legacyPulseActive) RequestSafetyStop("GLOBAL: reinjeção falhou; captura encerrada por segurança.");
         }
     }
 

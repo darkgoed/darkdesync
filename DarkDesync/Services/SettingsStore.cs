@@ -32,8 +32,8 @@ public sealed record AppSettings
         RetentionMs = Math.Clamp(RetentionMs, 10, 3000), Chance = Math.Clamp(Chance, 0, 100),
         SpacingMs = Math.Clamp(SpacingMs, 0, 200), JitterMs = Math.Clamp(JitterMs, 0, 2000),
         ThrottleMode = Enum.IsDefined(ThrottleMode) ? ThrottleMode : ThrottleMode.Hotkey,
-        // Global selection/consent is deliberately never restored from disk.
-        FilterMode = Enum.IsDefined(FilterMode) && FilterMode != FilterMode.LegacyGlobalOutbound ? FilterMode : FilterMode.Outbound,
+        // Selecting a mode is not starting capture. START is always a separate action.
+        FilterMode = Enum.IsDefined(FilterMode) ? FilterMode : FilterMode.Outbound,
         Hotkey = Hotkey != null && HotkeyService.GetAvailableKeys().ContainsKey(Hotkey) ? Hotkey : "Espaço",
         CustomFilter = string.IsNullOrWhiteSpace(CustomFilter) ? "outbound" : CustomFilter,
         DiagnosticDurationMs = Math.Clamp(DiagnosticDurationMs, 0, 800),

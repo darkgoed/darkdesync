@@ -22,9 +22,9 @@
     <StackPanel><TextBlock Text="Controle de tráfego" FontSize="26" FontWeight="SemiBold" /><TextBlock Text="Perda e variação de tempo em ambientes autorizados." Style="{StaticResource HelpText}" Margin="0,6,0,0" /></StackPanel>
     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
      <Border Background="#252331" CornerRadius="7" Padding="12,10" Margin="0,0,10,0"><StackPanel Orientation="Horizontal"><Ellipse Width="7" Height="7" Fill="{Binding StatusColorBrush}" Margin="0,0,8,0" /><TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" /></StackPanel></Border>
-     <Button Content="{Binding EngineToggleText}" IsEnabled="{Binding IsStrictCaptureMode}" Command="{Binding ToggleEngineCommand}" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" />
-     <Button Content="Pulso manual →" Focusable="False" Command="{Binding TriggerCycleCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" />
-     <Button Content="Cancelar" Command="{Binding CancelCycleCommand}" Style="{StaticResource DangerButton}" />
+     <Button Content="{Binding EngineToggleText}" Command="{Binding ToggleEngineCommand}" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" />
+     <Button Content="Pulso manual →" Visibility="{Binding IsStrictCaptureMode, Converter={StaticResource BoolVisibility}}" Focusable="False" Command="{Binding TriggerCycleCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" />
+     <Button Content="Cancelar" Visibility="{Binding IsStrictCaptureMode, Converter={StaticResource BoolVisibility}}" Command="{Binding CancelCycleCommand}" Style="{StaticResource DangerButton}" />
     </StackPanel>
    </Grid>
    <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -36,9 +36,8 @@
       <CheckBox Content="Atalho apenas com o alvo em foco" IsChecked="{Binding OnlyTargetForeground}" Margin="0,0,0,22" />
       <TextBlock Text="Filtro de rede" FontWeight="SemiBold" Margin="0,0,0,8" /><ComboBox ItemsSource="{Binding FilterModeOptions}" SelectedItem="{Binding SelectedFilterModeText}" FontSize="11" ToolTip="{Binding SelectedFilterModeText}" />
       <StackPanel Visibility="{Binding IsLegacyGlobalSelected, Converter={StaticResource BoolVisibility}}" Margin="0,12,0,0">
-       <TextBlock x:Name="GlobalLegacyWarning" Text="GLOBAL: afeta TODAS as conexões de saída do Windows, de TODOS os aplicativos — não apenas Roblox. Somente durante um pulso de 0–800 ms (padrão 150 ms). Sem opt-in, nenhum handle global é aberto. O consentimento não é salvo." TextWrapping="Wrap" Foreground="#FB7185" FontWeight="SemiBold" />
-       <CheckBox x:Name="GlobalLegacyConsent" Content="Autorizo o pulso GLOBAL nesta sessão (todos os aplicativos)." IsChecked="{Binding LegacyGlobalConsent, Mode=TwoWay}" Margin="0,10,0,0" />
-       <TextBlock Text="Perda do perfil descarta pacotes; Outbound Freeze RETÉM e libera, não é drop. A opção contínua não mantém captura GLOBAL fora do pulso. Nenhum resultado no Roblox real foi comprovado." Style="{StaticResource HelpText}" />
+       <TextBlock x:Name="GlobalLegacyWarning" Text="GLOBAL: modo Outbound legado captura TODAS as conexões de saída do Windows, não apenas o jogo. Selecione o efeito e pressione START para manter ativo; pressione STOP para encerrar. Nenhum resultado no Roblox real foi comprovado." TextWrapping="Wrap" Foreground="#FB7185" FontWeight="SemiBold" />
+       <TextBlock Text="A seleção do modo não inicia captura. START aplica continuamente o efeito; STOP desliga e libera os pacotes retidos. Freeze retém, perda descarta." Style="{StaticResource HelpText}" />
       </StackPanel>
       <TextBox Text="{Binding CustomFilterText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsCustomFilterVisible, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0" ToolTip="Restrição adicional WinDivert; nunca amplia o alvo" />
       <TextBlock Text="UDP novo verificado entra automaticamente no escopo. Troca segura de NETWORK libera a fila e deixa tráfego passar sem efeito no intervalo; não há handles sobrepostos. Parar/reiniciar preserva a observação do mesmo PID. Para perda assimétrica, selecione entrada + saída." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
@@ -71,7 +70,7 @@
        <Slider Minimum="0" Maximum="100" Value="{Binding BurstLossPercentage, Mode=TwoWay}" Margin="0,6,0,0" />
       </StackPanel>
       <StackPanel Visibility="{Binding IsGlobalDropVisible, Converter={StaticResource BoolVisibility}}">
-       <Grid><TextBlock Text="Perda do pulso GLOBAL · %" /><TextBox Text="{Binding DropPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
+       <Grid><TextBlock Text="Perda contínua GLOBAL · %" /><TextBox Text="{Binding DropPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
        <Slider Minimum="0" Maximum="100" Value="{Binding DropPercentage, Mode=TwoWay}" Margin="0,6,0,0" />
       </StackPanel>
       <StackPanel Visibility="{Binding IsAsymmetricLossVisible, Converter={StaticResource BoolVisibility}}">
@@ -96,7 +95,7 @@
      <Border Style="{StaticResource CardPanel}" Margin="0,16,0,0"><StackPanel>
       <TextBlock Text="04 / ACIONAMENTO GLOBAL" Style="{StaticResource SectionLabel}" />
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><TextBlock Text="Atalho global" FontWeight="SemiBold" VerticalAlignment="Center" /><ComboBox Grid.Column="1" ItemsSource="{Binding AvailableHotkeys.Keys}" SelectedItem="{Binding SelectedHotkeyName}" /></Grid>
-      <TextBlock Text="Botão: um pulso manual. Atalho: um ciclo temporizado por pressionamento, com o mesmo perfil. Sem repetição automática ou sobreposição; solte antes de repetir. Espaço continua chegando à aplicação (pulo normal)." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
+      <TextBlock Text="Para o Outbound legado GLOBAL use START/STOP. Nos modos por processo, o atalho aplica um pulso por pressionamento; Espaço continua chegando à aplicação normalmente." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
      </StackPanel></Border>
      <Expander Header="Diagnóstico · eventos do sistema" Foreground="{StaticResource TextMutedBrush}" Margin="4,18,4,0"><ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="11" Height="140" Margin="0,10,0,0" /></Expander>
     </StackPanel></ScrollViewer>

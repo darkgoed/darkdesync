@@ -45,6 +45,16 @@ public sealed class LegacyGlobalCompatibilityTests
     }
 
     [Fact]
+    public void ContinuousGlobalNeedsSelectedModeNotAdditionalConsent()
+    {
+        using var engine = DiagnosticModesTests.Engine();
+        Assert.False(engine.BeginLegacyGlobalContinuous(DiagnosticMode.None));
+        Assert.False(engine.IsCaptureRequested);
+        Assert.False(engine.IsRunning);
+        Assert.Equal(DesyncStateMachine.State.Idle, engine.StateMachine.Current);
+    }
+
+    [Fact]
     public void StrictUnknownUdpPasses_ConsentedLeaseDropsWithoutPidOrFlow_ExpiryPasses()
     {
         using var engine = DiagnosticModesTests.Engine();
@@ -107,9 +117,9 @@ public sealed class LegacyGlobalCompatibilityTests
     }
 
     [Fact]
-    public void SettingsNeverRestoreGlobalSelectionOrConsent_DefaultPulseIs150()
+    public void GlobalModeCanBeRememberedButNeverAutomaticallyStarts()
     {
-        Assert.Equal(FilterMode.Outbound, new AppSettings { FilterMode = FilterMode.LegacyGlobalOutbound }.Validate().FilterMode);
+        Assert.Equal(FilterMode.LegacyGlobalOutbound, new AppSettings { FilterMode = FilterMode.LegacyGlobalOutbound }.Validate().FilterMode);
         Assert.Equal(FilterMode.Outbound, new AppSettings().FilterMode);
         Assert.Equal(150, new AppSettings().DiagnosticDurationMs);
     }
