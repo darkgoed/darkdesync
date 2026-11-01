@@ -447,7 +447,27 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public string EngineToggleText => IsEngineRunning ? "Parar Captura" : "Iniciar Captura";
+    public string EngineToggleText => (_packetEngine?.IsCaptureRequested ?? IsEngineRunning) ? "Parar Captura" : "Iniciar Captura";
+    public string NetworkDiagnosticsText
+    {
+        get
+        {
+            var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
+            return $"PID {s.ProcessId} • FLOW {(s.Observing ? "armado" : "inativo")} • NETWORK {(s.Running ? "ativo" : s.Requested ? "aguardando tupla" : "parado")}\nTCP: observados {s.TcpObserved}, escopados {s.TcpScoped} | UDP: sockets {s.UdpBindings}, fluxos observados {s.UdpObserved}, elegíveis {s.UdpEligible}, escopados {s.UdpScoped}\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
+        }
+    }
+    public string ScopedTuplesText => (_packetEngine?.ScopeStatus.Tuples ?? "") + "\nNETWORK: " + (_packetEngine?.ScopeStatus.Filter ?? "false");
+
+    private void RefreshNetworkDiagnostics()
+    {
+        if (_packetEngine == null) return;
+        IsEngineRunning = _packetEngine.IsRunning;
+        OnPropertyChanged(nameof(EngineToggleText));
+        OnPropertyChanged(nameof(NetworkDiagnosticsText));
+        OnPropertyChanged(nameof(ScopedTuplesText));
+        var s = _packetEngine.ScopeStatus;
+        FilterStatusText = $"TCP escopado {s.TcpScoped} • UDP escopado {s.UdpScoped} • {s.Reason}";
+    }
     public string EngineStatusColor => IsEngineRunning ? "#06D6A0" : "#E63946";
 
     private long _packetsIntercepted = 0;
@@ -588,10 +608,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 PacketsDropped = _packetEngine.PacketsDropped;
                 PacketsPassed = _packetEngine.PacketsPassedThrough;
                 PacketsThrottled = _packetEngine.PacketsThrottled;
+                RefreshNetworkDiagnostics();
             }
         };
-        // Retain the stopped timer's compatibility surface for diagnostics/tests.
-        // The controls-only view has no telemetry polling or countdown rendering.
+        _statsTimer.Start(); // One low-priority snapshot poll, never dispatch per packet.
 
         // Populate initial process list
         RefreshProcessList();
@@ -650,17 +670,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         uint pid = SelectedProcess?.ProcessId ?? 0;
 
         _controller.CancelCycle();
-        if (_packetEngine != null && _packetEngine.IsRunning)
-        {
-            _packetEngine.UpdateFilter(mode, pid, CustomFilterText);
-            IsEngineRunning = false;
-            FilterStatusText = "Alvo/filtro alterado • captura parada; reinicie explicitamente.";
-        }
-        else
-        {
-            FilterStatusText = $"Filtro preparado: {SelectedFilterModeText} • captura parada";
-            _packetEngine?.UpdateFilter(mode, pid, CustomFilterText);
-        }
+        _packetEngine?.UpdateFilter(mode, pid, CustomFilterText); // Arms observation on selection, before joining a service.
+        RefreshNetworkDiagnostics();
     }
 
     private void ExecuteTriggerCycle() => ExecuteTriggerCycle("pulso manual");
@@ -709,7 +720,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void ExecuteToggleEngine()
     {
-        if (IsEngineRunning)
+        if (_packetEngine?.IsCaptureRequested ?? IsEngineRunning)
         {
             _controller.CancelCycle();
             _packetEngine?.Stop();

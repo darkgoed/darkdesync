@@ -15,7 +15,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length == 3 && args[0] == "--udp-peer") return RunUdpPeer(args);
+        if ((args.Length == 3 || args.Length == 4) && args[0] == "--udp-peer") return RunUdpPeer(args);
         string temporary = Path.Combine(Path.GetTempPath(), "DarkDesync-UI-" + Guid.NewGuid());
         var errors = new BindingErrors();
         PresentationTraceSources.DataBindingSource.Listeners.Add(errors);
@@ -28,6 +28,9 @@ internal static class Program
             window.Show(); Pump();
             Require(vm.SelectedHotkeyName == "Espaço", "Default global hotkey");
             Require(!vm.IsEngineRunning, "Opening UI must not start capture");
+            var diagnostics = (TextBlock)window.FindName("NetworkScopeDiagnostics");
+            Require(diagnostics.Text.Contains("TCP:") && diagnostics.Text.Contains("UDP:"), "Protocol diagnosis binding");
+            Require(diagnostics.Text.Contains("antes de entrar na experiência"), "Explicit pre-experience observation guidance");
             var controls = Descendants(window).ToArray();
             var mode = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             Require(controls.OfType<ComboBox>().Count(c => ReferenceEquals(c.ItemsSource, vm.AvailableHotkeys.Keys)) <= 1, "One hotkey picker");
@@ -73,6 +76,8 @@ internal static class Program
     // Loopback-only echo endpoint lets integration tests select a real OTHER PID.
     private static int RunUdpPeer(string[] args)
     {
+        using var controlTcp = new System.Net.Sockets.TcpClient();
+        if (args.Length == 4) controlTcp.Connect(System.Net.IPAddress.Loopback, int.Parse(args[3]));
         using var peer = new System.Net.Sockets.UdpClient(System.Net.Sockets.AddressFamily.InterNetwork);
         bool shared = args[2] == "shared";
         peer.ExclusiveAddressUse = !shared;
@@ -81,11 +86,32 @@ internal static class Program
         peer.Client.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, int.Parse(args[1])));
         Console.WriteLine(((System.Net.IPEndPoint)peer.Client.LocalEndPoint!).Port);
         Console.Out.Flush();
+        bool udpClosed = false;
+        using var keepPidAlive = new ManualResetEventSlim();
+        var commands = new Thread(() =>
+        {
+            while (Console.ReadLine() is { } line)
+            {
+                if (line != "close-udp") continue;
+                Volatile.Write(ref udpClosed, true);
+                peer.Dispose();
+                Console.WriteLine("udp-closed"); Console.Out.Flush();
+            }
+        }) { IsBackground = true };
+        commands.Start();
         while (true)
         {
-            var remote = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
-            byte[] bytes = peer.Receive(ref remote);
-            peer.Send(bytes, bytes.Length, remote);
+            try
+            {
+                var remote = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+                byte[] bytes = peer.Receive(ref remote);
+                peer.Send(bytes, bytes.Length, remote);
+            }
+            catch (Exception) when (Volatile.Read(ref udpClosed))
+            {
+                keepPidAlive.Wait(); // Keep the controlled PID/TCP connection alive after closing UDP.
+                return 0;
+            }
         }
     }
 

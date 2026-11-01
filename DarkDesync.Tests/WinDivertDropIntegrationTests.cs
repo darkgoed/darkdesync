@@ -33,11 +33,12 @@ public class WinDivertDropIntegrationTests
         for (int i = 0; i < repetitions; i++)
         {
             Assert.True(engine.Start(FilterMode.Custom, (uint)Environment.ProcessId, customFilter: "loopback"));
+            var workers = new[] { "_captureTask", "_throttleReleaseTask" }.ToDictionary(name => name, name =>
+                (Task)typeof(PacketEngine).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(engine)!);
             engine.Stop();
             foreach (var name in new[] { "_captureTask", "_throttleReleaseTask" })
             {
-                var worker = (Task)typeof(PacketEngine).GetField(name,
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(engine)!;
+                var worker = workers[name];
                 Assert.True(worker.IsCompletedSuccessfully, name + ": " + worker.Status);
                 if (name == "_captureTask") Assert.True(worker.CreationOptions.HasFlag(TaskCreationOptions.LongRunning));
             }

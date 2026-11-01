@@ -20,6 +20,7 @@ public sealed class FlowTracker : IDisposable
     private UdpFlowLedger? _ledger;
     private volatile bool _healthy;
     public event Action<string>? Failed;
+    public event Action? Changed;
     public bool IsHealthy => _healthy && _process is { HasExited: false };
     internal static string ObservationFilter(uint pid) =>
         $"processId == {pid} and protocol == 17 and not ipv6";
@@ -94,6 +95,7 @@ public sealed class FlowTracker : IDisposable
                     throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "UDP FLOW receive failed");
                 }
                 if (!ledger.Apply(addr)) throw new InvalidOperationException("UDP FLOW metadata capacity exceeded");
+                Changed?.Invoke(); // Signal only: never swap/join NETWORK on the FLOW worker.
             }
         }
         catch (Exception ex)

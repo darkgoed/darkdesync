@@ -39,6 +39,22 @@ public sealed class PacketEngine : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _captureTask;
     private Task? _throttleReleaseTask;
+    private sealed class CaptureEpoch(IntPtr handle)
+    {
+        public IntPtr Handle { get; } = handle;
+        public volatile bool Retiring;
+    }
+    private CaptureEpoch? _epoch;
+    private readonly SemaphoreSlim _scopeSignal = new(0, 1);
+    private readonly CancellationTokenSource _discoveryCts = new();
+    private Task? _discoveryTask;
+    private volatile bool _captureRequested;
+    private volatile bool _reconfiguring;
+    private volatile bool _disposed;
+    private CaptureScopeStatus _scopeStatus = CaptureScopeStatus.Empty;
+    private string? _lastCaptureError;
+    public CaptureScopeStatus ScopeStatus => Volatile.Read(ref _scopeStatus);
+    public bool IsCaptureRequested => _captureRequested;
 
 
     private uint _targetProcessId;
@@ -59,7 +75,7 @@ public sealed class PacketEngine : IDisposable
     private string _customFilter = "outbound";
     private int _dropPercentage = 100;
     private volatile bool _isRunning;
-    private string _currentFilter = "outbound";
+    private string _currentFilter = "false";
 
     // Throttle parameters
     private volatile bool _throttleEnabled = false;
@@ -136,8 +152,12 @@ public sealed class PacketEngine : IDisposable
     public long PacketsDropped => Volatile.Read(ref _packetsDropped);
     public long PacketsPassedThrough => Volatile.Read(ref _packetsPassedThrough);
     public long PacketsThrottled => Volatile.Read(ref _packetsThrottled);
+    private long _tcpIntercepted, _udpIntercepted, _tcpDropped, _udpDropped, _tcpHeld, _udpHeld;
+    public string ProtocolCounters => $"TCP: capturados {Volatile.Read(ref _tcpIntercepted)}, descartados {Volatile.Read(ref _tcpDropped)}, retidos {Volatile.Read(ref _tcpHeld)} | UDP: capturados {Volatile.Read(ref _udpIntercepted)}, descartados {Volatile.Read(ref _udpDropped)}, retidos {Volatile.Read(ref _udpHeld)}";
+    public long UdpPacketsDropped => Volatile.Read(ref _udpDropped);
+    public long UdpPacketsHeld => Volatile.Read(ref _udpHeld);
     public bool IsRunning => _isRunning;
-    public string CurrentFilter => _currentFilter;
+    public string CurrentFilter => ScopeStatus.Filter;
     public DesyncStateMachine StateMachine => _stateMachine;
 
     private volatile bool _cycleDropEnabled = true;
@@ -230,10 +250,8 @@ public sealed class PacketEngine : IDisposable
         _filterBuilder = filterBuilder;
         _flowTracker = flowTracker;
         _stateMachine = stateMachine;
-        _flowTracker.Failed += reason =>
-        {
-            if (_scopedConnections.Any(e => e.Protocol == 17)) RequestSafetyStop(reason);
-        };
+        _flowTracker.Changed += SignalScopeChanged;
+        _flowTracker.Failed += _ => SignalScopeChanged();
 
         // Auto flush throttle queue when leaving Active state
         _stateMachine.StateChanged += (oldState, newState) =>
@@ -259,63 +277,102 @@ public sealed class PacketEngine : IDisposable
 
     private bool StartCore(FilterMode mode, uint processId, int dropPercentage, string? customFilter)
     {
-        if (_isRunning)
+        if (_disposed || _isRunning) return false;
+        ObserveTargetCore(processId);
+        if (_targetProcessId == 0)
         {
+            ErrorOccurred?.Invoke("Captura bloqueada: " + ScopeStatus.Reason);
             return false;
         }
-
         Interlocked.Exchange(ref _safetyStopRequested, 0);
         _filterMode = mode;
-        _targetProcessId = processId;
         _dropPercentage = Math.Clamp(dropPercentage, 0, 100);
         _customFilter = customFilter ?? "outbound";
-
-        // Reset stats
-        Interlocked.Exchange(ref _packetsIntercepted, 0);
-        Interlocked.Exchange(ref _packetsDropped, 0);
-        Interlocked.Exchange(ref _packetsPassedThrough, 0);
-        Interlocked.Exchange(ref _packetsThrottled, 0);
-        Interlocked.Exchange(ref _lastStatsNotificationTicks, 0);
-
-        _currentFilter = ResolveFilterString();
-
-        if (_currentFilter == "false")
+        _lastCaptureError = null;
+        if (!_captureRequested)
         {
-            _targetProcess?.Dispose();
-            _targetProcess = null;
-            string observation = _flowTracker.IsHealthy
-                ? "Observação UDP armada; gere um NOVO fluxo na aplicação e tente iniciar novamente."
-                : "Observação UDP indisponível; verifique alvo, driver e permissão de administrador.";
-            ErrorOccurred?.Invoke("Captura bloqueada: exige conexão TCP/IPv4 ou fluxo UDP/IPv4 observado por PID, com tupla completa e socket exclusivo. " + observation + " IPv6, portas isoladas e sockets compartilhados não são aceitos.");
-            return false;
+            Interlocked.Exchange(ref _packetsIntercepted, 0); Interlocked.Exchange(ref _packetsDropped, 0);
+            Interlocked.Exchange(ref _packetsPassedThrough, 0); Interlocked.Exchange(ref _packetsThrottled, 0);
+            Interlocked.Exchange(ref _lastStatsNotificationTicks, 0);
+            Interlocked.Exchange(ref _tcpIntercepted, 0); Interlocked.Exchange(ref _udpIntercepted, 0);
+            Interlocked.Exchange(ref _tcpDropped, 0); Interlocked.Exchange(ref _udpDropped, 0);
+            Interlocked.Exchange(ref _tcpHeld, 0); Interlocked.Exchange(ref _udpHeld, 0);
         }
+        _captureRequested = true;
+        ReconcileScope();
+        if (!_isRunning) ErrorOccurred?.Invoke("Captura bloqueada/aguardando tupla segura. " + ScopeStatus.Reason);
+        return _isRunning;
+    }
 
-        if (!OpenNetworkHandle(_currentFilter))
+    /// <summary>Arm PID-only metadata before entering a service/experience; no payload capture.</summary>
+    public void ObserveTarget(uint processId)
+    {
+        lock (_lifecycleLock)
         {
-            _targetProcess?.Dispose();
-            _targetProcess = null;
-            return false;
+            if (_disposed) return;
+            ObserveTargetCore(processId);
+            ReconcileScope();
         }
+    }
 
-        _cts = new CancellationTokenSource();
-        lock (_packetLock)
+    private void ObserveTargetCore(uint pid)
+    {
+        bool same = pid != 0 && pid == _targetProcessId && TargetAlive();
+        if (!same)
         {
-            _stopping = false;
-            _nextReleaseTicks = 0;
-            _isRunning = true;
+            StopCore();
+            _flowTracker.Stop();
+            _targetProcess?.Dispose(); _targetProcess = null;
+            _targetProcessId = 0;
+            if (pid == 0) { PublishEmpty(); return; }
+            try
+            {
+                _targetProcess = Process.GetProcessById((int)pid);
+                _ = _targetProcess.Handle;
+                if (_targetProcess.HasExited) throw new InvalidOperationException("Processo encerrado");
+                _targetProcessId = pid;
+            }
+            catch (Exception ex)
+            {
+                _targetProcess?.Dispose(); _targetProcess = null;
+                _lastCaptureError = "Alvo indisponível: " + ex.Message;
+                PublishEmpty(); return;
+            }
         }
+        if (UdpFlowsOverride == null) _flowTracker.Start(pid); // Same healthy PID preserves ledger/handle.
+        _discoveryTask ??= Task.Run(DiscoveryLoop);
+        SignalScopeChanged();
+    }
 
-        var token = _cts.Token;
-        _captureTask = Task.Factory.StartNew(() => CaptureLoop(token), CancellationToken.None,
-            TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        _throttleReleaseTask = Task.Run(() => ThrottleReleaseLoop(token));
+    private bool TargetAlive()
+    {
+        try { return TargetAliveOverride?.Invoke() ?? (_targetProcess is { HasExited: false }); }
+        catch { return false; }
+    }
 
-        // Connection scope is immutable for this capture session. New connections
-        // require an explicit restart, never a broad port-based fallback.
+    private void SignalScopeChanged()
+    {
+        if (_disposed) return;
+        try { _scopeSignal.Release(); }
+        catch (SemaphoreFullException) { } // Coalesce metadata bursts.
+    }
 
-        _logger.LogInformation("PacketEngine started. Filter: '{Filter}', Drop: {Drop}%, Throttle: {Throttle}",
-            _currentFilter, _dropPercentage, _throttleEnabled);
-        return true;
+    private async Task DiscoveryLoop()
+    {
+        try
+        {
+            while (!_discoveryCts.IsCancellationRequested)
+            {
+                await _scopeSignal.WaitAsync(TimeSpan.FromMilliseconds(250), _discoveryCts.Token).ConfigureAwait(false);
+                lock (_lifecycleLock)
+                {
+                    if (_disposed) return;
+                    ReconcileScope();
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { RequestSafetyStop("Falha na reconciliação do escopo: " + ex.Message); }
     }
 
     public bool Start(uint processId, int dropPercentage = 100)
@@ -325,100 +382,143 @@ public sealed class PacketEngine : IDisposable
 
     public void UpdateFilter(FilterMode mode, uint processId = 0, string? customFilter = null)
     {
-        // Stop and flush before any target/filter change; never close a live sender.
-        Stop();
-        _filterMode = mode;
-        _targetProcessId = processId;
-        if (!string.IsNullOrWhiteSpace(customFilter))
-            _customFilter = customFilter;
-        _currentFilter = "false";
+        lock (_lifecycleLock)
+        {
+            if (_disposed) return;
+            ObserveTargetCore(processId);
+            _filterMode = mode;
+            _customFilter = customFilter ?? "outbound";
+            ReconcileScope();
+        }
     }
 
-    private string ResolveFilterString()
+    private void PublishEmpty() => Volatile.Write(ref _scopeStatus,
+        CaptureScopeStatus.Empty with { Reason = _lastCaptureError ?? CaptureScopeStatus.Empty.Reason });
+
+    // Single serialized control plane: callbacks never acquire this lock or join workers.
+    private void ReconcileScope()
     {
-        _scopedConnections = [];
-        _targetProcess?.Dispose();
-        _targetProcess = null;
-        if (_targetProcessId == 0) return "false";
+        if (_targetProcessId == 0) { PublishEmpty(); return; }
+        if (!TargetAlive())
+        {
+            StopCore();
+            _flowTracker.Stop();
+            _targetProcess?.Dispose(); _targetProcess = null; _targetProcessId = 0;
+            _lastCaptureError = "Processo-alvo encerrado: escopo e observação revogados.";
+            PublishEmpty(); return;
+        }
         try
         {
-            _targetProcess = Process.GetProcessById((int)_targetProcessId);
-            if (_targetProcess.HasExited) return "false";
-            _ = _targetProcess.Handle; // Bind identity to this process, not a reusable PID.
-            if (UdpFlowsOverride == null) _flowTracker.Start(_targetProcessId);
-            _scopedConnections = ReadEndpoints().Where(e => e.Protocol == 6 && e.LocalPort != 0 &&
-                e.RemotePort != 0 && e.LocalAddr != 0 && e.RemoteAddr != 0)
-                .Concat(ReadUdpFlows().Where(HasUdpBinding)).Distinct().ToArray();
+            var endpoints = ReadEndpoints();
+            var tcp = endpoints.Where(e => e.Protocol == 6 && e.LocalPort != 0 && e.RemotePort != 0 && e.LocalAddr != 0 && e.RemoteAddr != 0).Distinct().ToArray();
+            var udp = ReadUdpFlows();
+            var eligibleUdp = UdpBindingOverride != null ? udp.Where(HasUdpBinding).ToArray() : _scanner.GetExclusiveUdpFlows(_targetProcessId, udp);
+            var eligible = tcp.Concat(eligibleUdp).Distinct().OrderBy(e => e.Protocol).ThenBy(e => e.LocalAddr)
+                .ThenBy(e => e.LocalPort).ThenBy(e => e.RemoteAddr).ThenBy(e => e.RemotePort).ToArray();
             string restriction = _filterMode == FilterMode.ProcessPorts ? "true" :
                 _filterBuilder.GetFilter(_filterMode, null, _customFilter);
-            if (restriction == "false") return "false";
-            return FilterBuilder.BuildScopedFilter(_scopedConnections, restriction);
+            string filter = !_captureRequested || restriction == "false" ? "false" : FilterBuilder.BuildScopedFilter(eligible, restriction);
+            if (filter != _currentFilter || (_captureRequested && filter != "false" && !_isRunning))
+                ReplaceNetworkScope(filter, eligible);
+            bool observing = UdpFlowsOverride != null || _flowTracker.IsHealthy;
+            string reason = !observing ? "Observação FLOW indisponível; UDP não autorizado. Verifique driver/permissões." :
+                udp.Length == 0 ? "Nenhum fluxo UDP observado. Ative observação antes de entrar na experiência; saia e entre/reconecte. UDP antigo não é reconstruído." :
+                eligibleUdp.Length == 0 ? "UDP observado, mas socket ausente, compartilhado ou propriedade ambígua: UDP recusado." :
+                "Tuplas UDP verificadas; descobertas e revogações atualizam NETWORK automaticamente.";
+            if (tcp.Length > 0 && _scopedConnections.All(e => e.Protocol != 17)) reason = "Somente TCP no escopo (HTTPS/controle não comprova canal da sessão). " + reason;
+            if (eligible.Length > 64) reason = "Limite de 64 tuplas excedido: captura bloqueada, sem truncar/ampliar.";
+            if (_filterMode == FilterMode.Custom) reason += " Restrição personalizada adicional pode excluir protocolos/tuplas; confira contadores.";
+            if (_lastCaptureError != null) reason = _lastCaptureError + " " + reason;
+            Volatile.Write(ref _scopeStatus, new(_targetProcessId, observing, _captureRequested, _isRunning,
+                tcp.Length, endpoints.Count(e => e.Protocol == 17), udp.Length, eligibleUdp.Length,
+                _scopedConnections.Count(e => e.Protocol == 6), _scopedConnections.Count(e => e.Protocol == 17),
+                reason, _currentFilter, CaptureScopeStatus.Describe(_scopedConnections)));
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Target scope unavailable");
-            return "false";
+            _lastCaptureError = "Identidade/escopo indisponível: " + ex.Message;
+            ReplaceNetworkScope("false", []);
+            Volatile.Write(ref _scopeStatus, ScopeStatus with { Running = false, TcpScoped = 0, UdpScoped = 0,
+                Reason = _lastCaptureError, Filter = "false", Tuples = "" });
         }
+    }
+
+    // WinDivert has no in-place filter update. Break-before-make: no overlapping
+    // handles/double effects. During the bounded turnover traffic passes normally.
+    // Publish new scope only after draining and closing the old send-capable epoch.
+    private void ReplaceNetworkScope(string filter, ProcessNetworkScanner.ProcessEndpoint[] eligible)
+    {
+        _reconfiguring = true;
+        RetireCaptureEpoch(); // No packet/handle lock held while joining Recv.
+        lock (_packetLock)
+        {
+            FlushThrottleQueueLocked();
+            CloseNetworkHandle();
+            _scopedConnections = [];
+            _currentFilter = "false";
+            _isRunning = false;
+            if (filter != "false" && OpenNetworkHandle(filter))
+            {
+                _cts ??= new CancellationTokenSource();
+                _stopping = false;
+                _scopedConnections = eligible;
+                _currentFilter = filter;
+                _isRunning = true;
+                var epoch = _epoch = new CaptureEpoch(_networkHandle);
+                var token = _cts.Token;
+                _captureTask = Task.Factory.StartNew(() => CaptureLoop(token, epoch), CancellationToken.None,
+                    TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                _throttleReleaseTask ??= Task.Run(() => ThrottleReleaseLoop(token));
+            }
+            else if (filter != "false") _captureRequested = false;
+            _reconfiguring = false;
+        }
+    }
+
+    private void RetireCaptureEpoch()
+    {
+        if (_epoch is { } epoch)
+        {
+            epoch.Retiring = true;
+            WinDivertNative.WinDivertShutdown(epoch.Handle, WinDivertNative.Shutdown.Recv);
+        }
+        _captureTask?.GetAwaiter().GetResult();
+        _captureTask = null; _epoch = null;
     }
 
     public void Stop()
     {
-        lock (_lifecycleLock) StopCore();
+        lock (_lifecycleLock) { if (!_disposed) StopCore(); }
     }
 
     private void StopCore()
     {
-        if (!_isRunning)
-        {
-            // An unsuccessful UDP start may still be observing PID-only metadata.
-            _flowTracker.Stop();
-            _targetProcess?.Dispose(); _targetProcess = null;
-            return;
-        }
-
-        _logger.LogInformation("Stopping PacketEngine");
+        _captureRequested = false;
         lock (_packetLock)
         {
             _stopping = true;
             _isRunning = false;
         }
-
-        _flowTracker.Stop();
-
         _cts?.Cancel();
-
-        lock (_handleLock)
-        {
-            if (_networkHandle != WinDivertNative.InvalidHandle)
-            {
-                WinDivertNative.WinDivertShutdown(_networkHandle, WinDivertNative.Shutdown.Recv);
-            }
-        }
-
-        try
-        {
-            _captureTask?.GetAwaiter().GetResult();
-            _throttleReleaseTask?.GetAwaiter().GetResult();
-        }
-        catch { }
-
-        // Keep sending available until workers and the final queue flush finish.
+        RetireCaptureEpoch();
+        _throttleReleaseTask?.GetAwaiter().GetResult();
+        _throttleReleaseTask = null;
         lock (_packetLock)
         {
             FlushThrottleQueueLocked();
             CloseNetworkHandle();
+            _scopedConnections = [];
+            _currentFilter = "false";
         }
         NotifyStats();
-
         _cts?.Dispose();
         _cts = null;
-
         _stateMachine.ForceIdle();
         ActiveDiagnosticMode = DiagnosticMode.None;
-        _targetProcess?.Dispose();
-        _targetProcess = null;
-        _scopedConnections = [];
-        _logger.LogInformation("PacketEngine stopped safely.");
+        // Preserve the same PID's observer/ledger for restart. Only target change,
+        // process exit, explicit ObserveTarget(0) or Dispose revokes observation.
+        Volatile.Write(ref _scopeStatus, ScopeStatus with { Requested = false, Running = false,
+            TcpScoped = 0, UdpScoped = 0, Filter = "false", Tuples = "" });
     }
 
     public void SetDropPercentage(int percentage)
@@ -450,6 +550,7 @@ public sealed class PacketEngine : IDisposable
                     _ => $"Erro WinDivert #{err}"
                 };
 
+                _lastCaptureError = errorMsg;
                 ErrorOccurred?.Invoke(errorMsg);
                 return false;
             }
@@ -478,7 +579,7 @@ public sealed class PacketEngine : IDisposable
     /// High-performance packet capture loop.
     /// Intercepts packets and evaluates Drop vs Throttle vs Pass-through.
     /// </summary>
-    private void CaptureLoop(CancellationToken ct)
+    private void CaptureLoop(CancellationToken ct, CaptureEpoch epoch)
     {
         int bufferSize = WinDivertNative.MtuMax;
         IntPtr packetBuffer = Marshal.AllocHGlobal(bufferSize);
@@ -491,26 +592,13 @@ public sealed class PacketEngine : IDisposable
             // the handle still supports sending, instead of dropping them on close.
             while (true)
             {
-                IntPtr currentHandle;
-                lock (_handleLock)
-                {
-                    currentHandle = _networkHandle;
-                }
-
-                if (currentHandle == WinDivertNative.InvalidHandle)
-                {
-                    if (ct.IsCancellationRequested) break;
-                    Thread.Sleep(20);
-                    continue;
-                }
-
                 var addr = new WinDivertNative.Address();
                 bool success = WinDivertNative.WinDivertRecv(
-                    currentHandle, packetBuffer, (uint)bufferSize, out uint recvLen, ref addr);
+                    epoch.Handle, packetBuffer, (uint)bufferSize, out uint recvLen, ref addr);
 
                 if (!success)
                 {
-                    if (ct.IsCancellationRequested || !_isRunning)
+                    if (epoch.Retiring || ct.IsCancellationRequested || !_isRunning)
                         break;
 
                     throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "WinDivertRecv failed");
@@ -541,9 +629,37 @@ public sealed class PacketEngine : IDisposable
     {
         lock (_packetLock)
         {
+            byte protocol = recvLen >= 20 && Marshal.ReadByte(packetBuffer, 0) >> 4 == 4 ? Marshal.ReadByte(packetBuffer, 9) : (byte)0;
+            long dropped = _packetsDropped, held = _packetsThrottled;
+            bool affected = ProcessCapturedPacketCore(packetBuffer, recvLen, addr, random);
+            if (protocol == 6)
+            {
+                Interlocked.Increment(ref _tcpIntercepted);
+                Interlocked.Add(ref _tcpDropped, _packetsDropped - dropped);
+                Interlocked.Add(ref _tcpHeld, _packetsThrottled - held);
+            }
+            else if (protocol == 17)
+            {
+                Interlocked.Increment(ref _udpIntercepted);
+                Interlocked.Add(ref _udpDropped, _packetsDropped - dropped);
+                Interlocked.Add(ref _udpHeld, _packetsThrottled - held);
+            }
+            return affected;
+        }
+    }
+
+    private bool ProcessCapturedPacketCore(IntPtr packetBuffer, uint recvLen, WinDivertNative.Address addr, Random random)
+    {
+        lock (_packetLock)
+        {
             Interlocked.Increment(ref _packetsIntercepted);
             // A Recv finishing during Stop must not overtake packets already held.
-            if (_stopping) FlushThrottleQueueLocked();
+            if (_stopping || _reconfiguring)
+            {
+                FlushThrottleQueueLocked();
+                RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                return false;
+            }
 
             bool active = _stateMachine.Current == DesyncStateMachine.State.Active;
 
@@ -730,20 +846,20 @@ public sealed class PacketEngine : IDisposable
                     e.RemotePort == remotePort && new System.Net.IPAddress(e.LocalAddr).Equals(localIp) &&
                     new System.Net.IPAddress(e.RemoteAddr).Equals(remoteIp));
                 if (flow != null && HasUdpBinding(flow)) return true;
-                RequestSafetyStop("Captura parada: fluxo UDP do PID não confirmado, expirado ou socket compartilhado/ambíguo.");
+                SignalScopeChanged(); // Pass through now; revoke only this tuple, not unrelated scopes/ledger.
                 return false;
             }
             // Revalidate the full tuple, not either port or an arbitrary loopback packet.
             var owned = ReadEndpoints();
             if (!owned.Any(e => e.Protocol == 6 && e.RemotePort != 0) && ReadUdpFlows().Length == 0)
-                RequestSafetyStop("Captura parada: nenhuma conexão TCP/IPv4 do alvo pôde ser confirmada.");
+                SignalScopeChanged();
             return owned.Any(e => e.Protocol == 6 && e.LocalPort == localPort &&
                 e.RemotePort == remotePort && new System.Net.IPAddress(e.LocalAddr).Equals(localIp) &&
                 new System.Net.IPAddress(e.RemoteAddr).Equals(remoteIp));
         }
         catch
         {
-            RequestSafetyStop("Captura parada: falha ao confirmar propriedade do tráfego do alvo.");
+            SignalScopeChanged();
             return false;
         }
     }
@@ -753,7 +869,17 @@ public sealed class PacketEngine : IDisposable
         if (!_isRunning || Interlocked.Exchange(ref _safetyStopRequested, 1) != 0) return;
         _stopping = true;
         // Never join the capture worker from itself. Serialize against UI stop/start.
-        _ = Task.Run(() => { Stop(); ErrorOccurred?.Invoke(reason); });
+        _ = Task.Run(() =>
+        {
+            lock (_lifecycleLock)
+            {
+                if (_disposed) return;
+                _lastCaptureError = reason;
+                StopCore();
+                ReconcileScope();
+            }
+            ErrorOccurred?.Invoke(reason);
+        });
     }
 
     private static bool TryExtractIpAndPorts(
@@ -840,7 +966,7 @@ public sealed class PacketEngine : IDisposable
     /// </summary>
     private async Task ThrottleReleaseLoop(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && _isRunning)
+        while (!ct.IsCancellationRequested)
         {
             try
             {
@@ -958,7 +1084,19 @@ public sealed class PacketEngine : IDisposable
 
     public void Dispose()
     {
-        Stop();
-        _flowTracker.Dispose();
+        lock (_lifecycleLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _discoveryCts.Cancel();
+            StopCore();
+            _flowTracker.Dispose();
+            _targetProcess?.Dispose(); _targetProcess = null; _targetProcessId = 0;
+            PublishEmpty();
+        }
+        // Discovery may be waiting for lifecycle lock; join only after releasing it.
+        _discoveryTask?.GetAwaiter().GetResult();
+        _discoveryCts.Dispose();
+        _scopeSignal.Dispose();
     }
 }
