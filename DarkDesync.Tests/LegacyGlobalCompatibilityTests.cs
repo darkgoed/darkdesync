@@ -45,6 +45,52 @@ public sealed class LegacyGlobalCompatibilityTests
     }
 
     [Fact]
+    public void DelayMillisecondsControlPerPacketNotEngineLifetime()
+    {
+        using var engine = DiagnosticModesTests.Engine();
+        DiagnosticModesTests.Authorize(engine);
+        engine.ActiveDiagnosticMode = DiagnosticMode.LatencyDelay;
+        engine.StateMachine.TryActivate();
+        long ticks = 10 * Stopwatch.Frequency;
+        typeof(PacketEngine).GetField("_timestamp", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(engine, (Func<long>)(() => ticks));
+        var release = typeof(PacketEngine).GetMethod("TryReleaseNext", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        bool Released(long at) => (bool)release.Invoke(engine, [at])!;
+
+        engine.GlobalDelayMs = 150;
+        Assert.True(DiagnosticModesTests.Capture(engine));
+        Assert.Equal(1, engine.PacketsThrottled);
+        Assert.False(Released(ticks + (149L * Stopwatch.Frequency / 1000)));
+        Assert.True(Released(ticks + (150L * Stopwatch.Frequency / 1000)));
+        Assert.Equal(1, engine.PacketsPassedThrough);
+
+        engine.GlobalDelayMs = 250; // Live slider update affects only newly queued packets.
+        ticks += Stopwatch.Frequency;
+        Assert.True(DiagnosticModesTests.Capture(engine));
+        Assert.False(Released(ticks + 249L * Stopwatch.Frequency / 1000));
+        Assert.True(Released(ticks + 250L * Stopwatch.Frequency / 1000));
+        Assert.Equal(2, engine.PacketsPassedThrough);
+        Assert.Equal(0, engine.PacketsDropped);
+        Assert.Equal(DesyncStateMachine.State.Active, engine.StateMachine.Current);
+        engine.GlobalDelayMs = 0;
+        Assert.False(DiagnosticModesTests.Capture(engine));
+        Assert.Equal(3, engine.PacketsPassedThrough);
+    }
+
+    [Fact]
+    public void DelaySettingClampsAndPersistsSeparatelyFromPulseDuration()
+    {
+        Assert.Equal(150, new AppSettings().GlobalDelayMs);
+        Assert.Equal(0, new AppSettings { GlobalDelayMs = -50 }.Validate().GlobalDelayMs);
+        Assert.Equal(3000, new AppSettings { GlobalDelayMs = 20000 }.Validate().GlobalDelayMs);
+        var saved = new AppSettings { GlobalDelayMs = 475, DiagnosticDurationMs = 150,
+            DiagnosticMode = DiagnosticMode.LatencyDelay }.Validate();
+        Assert.Equal(475, saved.GlobalDelayMs);
+        Assert.Equal(150, saved.DiagnosticDurationMs);
+        Assert.Equal(DiagnosticMode.LatencyDelay, saved.DiagnosticMode);
+    }
+
+    [Fact]
     public void ContinuousGlobalNeedsSelectedModeNotAdditionalConsent()
     {
         using var engine = DiagnosticModesTests.Engine();

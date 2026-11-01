@@ -15,5 +15,8 @@ public enum DiagnosticMode
     BurstLoss = 2,
 
     /// <summary>3. Applies independent configurable loss rates for inbound and outbound traffic.</summary>
-    AsymmetricLoss = 3
+    AsymmetricLoss = 3,
+
+    /// <summary>4. Holds outgoing packets for a configurable time per packet, while START is active.</summary>
+    LatencyDelay = 4
 }

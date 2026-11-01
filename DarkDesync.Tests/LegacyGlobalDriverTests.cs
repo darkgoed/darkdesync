@@ -129,6 +129,44 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
 
     [GlobalDriverTheory]
     [Trait("Category", "Driver")]
+    [InlineData(240)]
+    public async Task ContinuousGlobalDelay_RespectsMilliseconds_AndStopRestores(int delayMs)
+    {
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        using var sender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
+        using var engine = DiagnosticModesTests.Engine();
+        engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
+        engine.GlobalDelayMs = delayMs;
+        Assert.False(engine.IsRunning);
+        Assert.True(engine.BeginLegacyGlobalContinuous(DiagnosticMode.LatencyDelay));
+        try
+        {
+            var started = Stopwatch.StartNew();
+            var pending = receiver.ReceiveAsync();
+            await sender.SendAsync(new byte[] { 61 }, 1);
+            await Until(() => engine.UdpPacketsHeld > 0);
+            Assert.False(pending.IsCompleted, "Delay must retain actual UDP packets before the chosen ms");
+            Assert.Equal(new byte[] { 61 }, (await pending.WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
+            Assert.True(started.ElapsedMilliseconds >= delayMs - 45,
+                $"Measured {started.ElapsedMilliseconds} ms for configured {delayMs} ms");
+            Assert.True(engine.IsRunning, "START must remain active after a packet is released");
+            engine.GlobalDelayMs = 0;
+            var undelayed = receiver.ReceiveAsync();
+            await sender.SendAsync(new byte[] { 62 }, 1);
+            Assert.Equal(new byte[] { 62 }, (await undelayed.WaitAsync(TimeSpan.FromSeconds(2))).Buffer);
+        }
+        finally { engine.Stop(); }
+        Assert.False(engine.IsRunning);
+        long captured = engine.PacketsIntercepted;
+        await sender.SendAsync(new byte[] { 63 }, 1);
+        Assert.Equal(new byte[] { 63 }, (await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(2))).Buffer);
+        Assert.Equal(captured, engine.PacketsIntercepted);
+        output.WriteLine($"GLOBAL delay {delayMs} ms: intercepted and delayed UDP, live switch to 0, STOP restored traffic");
+    }
+
+    [GlobalDriverTheory]
+    [Trait("Category", "Driver")]
     [InlineData(DiagnosticMode.None)]
     [InlineData(DiagnosticMode.OutboundFreeze)]
     [InlineData(DiagnosticMode.BurstLoss)]

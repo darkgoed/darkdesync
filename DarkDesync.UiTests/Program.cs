@@ -70,11 +70,22 @@ internal static class Program
                 "START/STOP button is available in GLOBAL");
             vm.TriggerCycleCommand.Execute(null); Pump();
             Require(!vm.IsEngineRunning && vm.NetworkDiagnosticsText.Contains("GLOBAL"), "Manual pulse is not required in GLOBAL");
+            mode.SelectedItem = "Atraso (ms)"; Pump();
+            Require(vm.IsGlobalDelayVisible, "Global latency delay slider must be visible");
+            var delaySlider = controls.OfType<Slider>().Single(sl => sl.Minimum == 0 && sl.Maximum == 3000);
+            Require(delaySlider.IsVisible, "Delay slider must be present and visible");
+            delaySlider.Value = 450; Pump();
+            Require(vm.GlobalDelayMs == 450, "Delay-ms slider must update the model");
+            Require(vm.NetworkDiagnosticsText.Contains("450 ms"), "Live diagnostics must show configured delay");
+            vm.DiagnosticCycleDurationMs = 0; Pump();
+            Require(vm.EngineToggleText == "START", "Zero-duration pulse does not restrict continuous START");
             vm.DiagnosticCycleDurationMs = 0; Pump();
             Require(vm.EngineToggleText == "START", "Zero-duration pulse does not restrict continuous START");
             vm.SaveSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
             Require(vm.IsLegacyGlobalSelected && vm.EngineToggleText == "START",
                 "GLOBAL mode selection persists, capture never starts on load");
+            Require(vm.GlobalDelayMs == 450 && vm.SelectedDiagnosticModeText == "Atraso (ms)",
+                "Saved delay milliseconds/effect must roundtrip without starting capture");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
             Console.WriteLine("PASS: WPF visual tree, mode/duration bindings, loss controls, shared settings, zero-duration, no duplicate pulse UI; no live driver or physical keyboard claim.");
