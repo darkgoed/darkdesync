@@ -289,7 +289,7 @@ public sealed class PacketEngine : IDisposable
     {
         if (mode == FilterMode.LegacyGlobalOutbound || _filterMode == FilterMode.LegacyGlobalOutbound)
         {
-            ErrorOccurred?.Invoke("Use START/STOP no modo Outbound legado. A seleção isolada não inicia captura.");
+            ErrorOccurred?.Invoke("Captura GLOBAL bloqueada por esta API; use START/STOP no modo Outbound legado. A seleção isolada não inicia captura.");
             return false;
         }
         if (_disposed || _isRunning) return false;
