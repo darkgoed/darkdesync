@@ -33,16 +33,17 @@ public sealed class FilterBuilder
     {
         var connections = endpoints.Distinct().ToArray();
         if (connections.Length == 0 || connections.Length > 64 || connections.Any(e =>
-            e.Protocol != 6 || e.LocalPort == 0 || e.RemotePort == 0 || e.LocalAddr == 0 || e.RemoteAddr == 0))
+            (e.Protocol != 6 && e.Protocol != 17) || e.LocalPort == 0 || e.RemotePort == 0 || e.LocalAddr == 0 || e.RemoteAddr == 0))
             return "false";
         var clauses = connections.Select(e =>
         {
             string local = new IPAddress(e.LocalAddr).ToString();
             string remote = new IPAddress(e.RemoteAddr).ToString();
-            return $"((outbound and ip.SrcAddr == {local} and tcp.SrcPort == {e.LocalPort} and ip.DstAddr == {remote} and tcp.DstPort == {e.RemotePort}) or (inbound and ip.DstAddr == {local} and tcp.DstPort == {e.LocalPort} and ip.SrcAddr == {remote} and tcp.SrcPort == {e.RemotePort}))";
+            string protocol = e.Protocol == 6 ? "tcp" : "udp";
+            return $"({protocol} and ((outbound and ip.SrcAddr == {local} and {protocol}.SrcPort == {e.LocalPort} and ip.DstAddr == {remote} and {protocol}.DstPort == {e.RemotePort}) or (inbound and ip.DstAddr == {local} and {protocol}.DstPort == {e.LocalPort} and ip.SrcAddr == {remote} and {protocol}.SrcPort == {e.RemotePort})))";
         });
         // Outer scope cannot be escaped by an 'or true' in the custom restriction.
-        return $"ip and tcp and ({string.Join(" or ", clauses)}) and ({restriction})";
+        return $"ip and ({string.Join(" or ", clauses)}) and ({restriction})";
     }
 
     public string BuildPortFilter(HashSet<ushort> localPorts)

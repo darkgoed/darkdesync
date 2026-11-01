@@ -31,7 +31,7 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0"><StackPanel>
      <Border Style="{StaticResource CardPanel}"><StackPanel>
       <TextBlock Text="01 / ALVO E CAPTURA" Style="{StaticResource SectionLabel}" />
-      <TextBlock Text="Aplicação-alvo" FontWeight="SemiBold" /><TextBlock Text="Obrigatório: conexão TCP/IPv4 estabelecida. Sem identificação segura, a captura é bloqueada; UDP e IPv6 não são afetados." Style="{StaticResource HelpText}" />
+      <TextBlock Text="Aplicação-alvo" FontWeight="SemiBold" /><TextBlock Text="TCP/IPv4 ou fluxo UDP/IPv4 observado por PID e socket exclusivo. Para UDP, inicie para armar a observação, gere um novo fluxo e tente iniciar novamente. Sem prova segura ou em IPv6, bloqueia." Style="{StaticResource HelpText}" />
       <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions><ComboBox ItemsSource="{Binding Processes}" SelectedItem="{Binding SelectedProcess}" DisplayMemberPath="DisplayName" ToolTip="Aplicação-alvo" /><Button Grid.Column="1" Content="↻" FontSize="19" Padding="0" Margin="6,0,0,0" Style="{StaticResource OutlineButton}" Command="{Binding RefreshProcessesCommand}" ToolTip="Atualizar processos" /></Grid>
       <CheckBox Content="Atalho apenas com o alvo em foco" IsChecked="{Binding OnlyTargetForeground}" Margin="0,0,0,22" />
       <TextBlock Text="Filtro de rede" FontWeight="SemiBold" Margin="0,0,0,8" /><ComboBox ItemsSource="{Binding FilterModeOptions}" SelectedItem="{Binding SelectedFilterModeText}" FontSize="11" ToolTip="{Binding SelectedFilterModeText}" />

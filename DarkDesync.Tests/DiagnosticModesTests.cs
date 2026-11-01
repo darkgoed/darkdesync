@@ -32,6 +32,7 @@ public sealed class DiagnosticModesTests
         bytes[20] = (byte)(src >> 8); bytes[21] = (byte)src;
         bytes[22] = (byte)(dst >> 8); bytes[23] = (byte)dst;
         bytes[32] = 0x50;
+        if (protocol == 17) bytes[25] = 20; // UDP header + payload length.
         return bytes;
     }
 

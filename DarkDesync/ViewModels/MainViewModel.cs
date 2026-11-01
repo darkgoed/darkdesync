@@ -57,13 +57,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<string> FilterModeOptions { get; } = new()
     {
-        "Saída do alvo (TCP/IPv4)",
-        "Entrada + saída do alvo (TCP/IPv4)",
+        "Saída do alvo (IPv4, TCP/UDP)",
+        "Entrada + saída do alvo (IPv4, TCP/UDP)",
         "Conexões verificadas da aplicação",
         "Personalizado"
     };
 
-    private string _selectedFilterModeText = "Saída do alvo (TCP/IPv4)";
+    private string _selectedFilterModeText = "Saída do alvo (IPv4, TCP/UDP)";
     public string SelectedFilterModeText
     {
         get => _selectedFilterModeText;
@@ -635,8 +635,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         return SelectedFilterModeText switch
         {
-            "Saída do alvo (TCP/IPv4)" => FilterMode.Outbound,
-            "Entrada + saída do alvo (TCP/IPv4)" => FilterMode.AllTraffic,
+            "Saída do alvo (IPv4, TCP/UDP)" => FilterMode.Outbound,
+            "Entrada + saída do alvo (IPv4, TCP/UDP)" => FilterMode.AllTraffic,
             "Conexões verificadas da aplicação" => FilterMode.ProcessPorts,
             "Personalizado" => FilterMode.Custom,
             _ => FilterMode.Outbound
@@ -649,9 +649,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var mode = GetFilterMode();
         uint pid = SelectedProcess?.ProcessId ?? 0;
 
+        _controller.CancelCycle();
         if (_packetEngine != null && _packetEngine.IsRunning)
         {
-            _controller.CancelCycle();
             _packetEngine.UpdateFilter(mode, pid, CustomFilterText);
             IsEngineRunning = false;
             FilterStatusText = "Alvo/filtro alterado • captura parada; reinicie explicitamente.";
@@ -659,6 +659,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         else
         {
             FilterStatusText = $"Filtro preparado: {SelectedFilterModeText} • captura parada";
+            _packetEngine?.UpdateFilter(mode, pid, CustomFilterText);
         }
     }
 
@@ -702,6 +703,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void ExecuteCancelCycle()
     {
         _controller.CancelCycle();
+        if (_packetEngine is { IsRunning: false }) _packetEngine.Stop(); // Also stop pending UDP observation.
         AddLog("[SISTEMA] Ciclo cancelado pelo usuário.");
     }
 

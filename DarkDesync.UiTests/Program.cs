@@ -13,8 +13,9 @@ using DarkDesync.ViewModels;
 internal static class Program
 {
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.Length == 3 && args[0] == "--udp-peer") return RunUdpPeer(args);
         string temporary = Path.Combine(Path.GetTempPath(), "DarkDesync-UI-" + Guid.NewGuid());
         var errors = new BindingErrors();
         PresentationTraceSources.DataBindingSource.Listeners.Add(errors);
@@ -65,6 +66,26 @@ internal static class Program
         {
             PresentationTraceSources.DataBindingSource.Listeners.Remove(errors);
             if (Directory.Exists(temporary)) Directory.Delete(temporary, true);
+        }
+    }
+
+    // Driver-test child process, not another app/build. No WPF, hook or capture.
+    // Loopback-only echo endpoint lets integration tests select a real OTHER PID.
+    private static int RunUdpPeer(string[] args)
+    {
+        using var peer = new System.Net.Sockets.UdpClient(System.Net.Sockets.AddressFamily.InterNetwork);
+        bool shared = args[2] == "shared";
+        peer.ExclusiveAddressUse = !shared;
+        if (shared) peer.Client.SetSocketOption(System.Net.Sockets.SocketOptionLevel.Socket,
+            System.Net.Sockets.SocketOptionName.ReuseAddress, true);
+        peer.Client.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, int.Parse(args[1])));
+        Console.WriteLine(((System.Net.IPEndPoint)peer.Client.LocalEndPoint!).Port);
+        Console.Out.Flush();
+        while (true)
+        {
+            var remote = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+            byte[] bytes = peer.Receive(ref remote);
+            peer.Send(bytes, bytes.Length, remote);
         }
     }
 

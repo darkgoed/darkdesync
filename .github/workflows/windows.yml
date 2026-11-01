@@ -1,7 +1,7 @@
 name: Windows validation
 on:
   push:
-    branches: [main, fix/darkdesync-consolidacao]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -13,10 +13,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: windows-${{ github.ref }}
+  group: windows-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   windows:
+    if: github.event_name != 'workflow_dispatch' || !inputs.driver_tests
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
@@ -59,7 +60,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Explicit driver tests, own TCP loopback sockets only
+      - name: Build test-only UDP child process (no second application)
+        run: dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --nologo
+      - name: Explicit driver tests, own TCP and UDP loopback sockets only
         run: dotnet test DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --filter "Category=Driver" --logger "trx;LogFileName=driver.trx" --results-directory artifacts/driver
       - uses: actions/upload-artifact@v4
         if: always()

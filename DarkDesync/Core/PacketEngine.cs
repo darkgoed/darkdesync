@@ -46,6 +46,13 @@ public sealed class PacketEngine : IDisposable
     private ProcessNetworkScanner.ProcessEndpoint[] _scopedConnections = [];
     internal Func<bool>? TargetAliveOverride { get; set; }
     internal Func<uint, List<ProcessNetworkScanner.ProcessEndpoint>>? EndpointsOverride { get; set; }
+    internal Func<ProcessNetworkScanner.ProcessEndpoint[]>? UdpFlowsOverride { get; set; }
+    internal Func<ProcessNetworkScanner.ProcessEndpoint, bool>? UdpBindingOverride { get; set; }
+    private ProcessNetworkScanner.ProcessEndpoint[] ReadUdpFlows() => UdpFlowsOverride?.Invoke() ?? _flowTracker.GetUdpFlows();
+    private bool HasUdpBinding(ProcessNetworkScanner.ProcessEndpoint flow) =>
+        UdpBindingOverride?.Invoke(flow) ?? _scanner.IsExclusiveUdpBinding(_targetProcessId, flow);
+    internal int ObservedUdpFlowCount => ReadUdpFlows().Length;
+    internal bool IsObservingUdp => _flowTracker.IsHealthy;
     private List<ProcessNetworkScanner.ProcessEndpoint> ReadEndpoints() =>
         EndpointsOverride?.Invoke(_targetProcessId) ?? _scanner.GetEndpointsForProcess(_targetProcessId);
     private FilterMode _filterMode = FilterMode.Outbound;
@@ -223,6 +230,10 @@ public sealed class PacketEngine : IDisposable
         _filterBuilder = filterBuilder;
         _flowTracker = flowTracker;
         _stateMachine = stateMachine;
+        _flowTracker.Failed += reason =>
+        {
+            if (_scopedConnections.Any(e => e.Protocol == 17)) RequestSafetyStop(reason);
+        };
 
         // Auto flush throttle queue when leaving Active state
         _stateMachine.StateChanged += (oldState, newState) =>
@@ -272,7 +283,7 @@ public sealed class PacketEngine : IDisposable
         {
             _targetProcess?.Dispose();
             _targetProcess = null;
-            ErrorOccurred?.Invoke("Captura bloqueada: selecione um processo com conexão TCP/IPv4 estabelecida e exclusiva. UDP, IPv6 e portas isoladas não identificam o alvo com segurança nesta versão.");
+            ErrorOccurred?.Invoke("Captura bloqueada: exige conexão TCP/IPv4 ou fluxo UDP/IPv4 observado por PID, com tupla completa e socket exclusivo. Se UDP: a observação foi armada; gere um NOVO fluxo na aplicação e tente iniciar novamente. IPv6, portas isoladas e sockets compartilhados não são aceitos.");
             return false;
         }
 
@@ -330,8 +341,10 @@ public sealed class PacketEngine : IDisposable
             _targetProcess = Process.GetProcessById((int)_targetProcessId);
             if (_targetProcess.HasExited) return "false";
             _ = _targetProcess.Handle; // Bind identity to this process, not a reusable PID.
+            if (UdpFlowsOverride == null) _flowTracker.Start(_targetProcessId);
             _scopedConnections = ReadEndpoints().Where(e => e.Protocol == 6 && e.LocalPort != 0 &&
-                e.RemotePort != 0 && e.LocalAddr != 0 && e.RemoteAddr != 0).Distinct().ToArray();
+                e.RemotePort != 0 && e.LocalAddr != 0 && e.RemoteAddr != 0)
+                .Concat(ReadUdpFlows().Where(HasUdpBinding)).Distinct().ToArray();
             string restriction = _filterMode == FilterMode.ProcessPorts ? "true" :
                 _filterBuilder.GetFilter(_filterMode, null, _customFilter);
             if (restriction == "false") return "false";
@@ -352,7 +365,12 @@ public sealed class PacketEngine : IDisposable
     private void StopCore()
     {
         if (!_isRunning)
+        {
+            // An unsuccessful UDP start may still be observing PID-only metadata.
+            _flowTracker.Stop();
+            _targetProcess?.Dispose(); _targetProcess = null;
             return;
+        }
 
         _logger.LogInformation("Stopping PacketEngine");
         lock (_packetLock)
@@ -678,7 +696,7 @@ public sealed class PacketEngine : IDisposable
     }
 
     /// <summary>
-    /// Verifies whether the packet matches authorized test criteria (loopback or target process ports).
+    /// Requires a full owned TCP tuple, or a current UDP PID FLOW plus exclusive binding.
     /// </summary>
     public bool IsAuthorizedTraffic(IntPtr packetBuffer, uint recvLen, WinDivertNative.Address addr)
     {
@@ -688,7 +706,8 @@ public sealed class PacketEngine : IDisposable
             return false;
         }
 
-        if (Marshal.ReadByte(packetBuffer, 0) >> 4 != 4 || Marshal.ReadByte(packetBuffer, 9) != 6)
+        byte protocol = Marshal.ReadByte(packetBuffer, 9);
+        if (Marshal.ReadByte(packetBuffer, 0) >> 4 != 4 || (protocol != 6 && protocol != 17))
             return false;
         try
         {
@@ -701,9 +720,18 @@ public sealed class PacketEngine : IDisposable
             var remoteIp = addr.Outbound ? dstIp : srcIp;
             ushort localPort = addr.Outbound ? srcPort : dstPort;
             ushort remotePort = addr.Outbound ? dstPort : srcPort;
+            if (protocol == 17)
+            {
+                var flow = ReadUdpFlows().FirstOrDefault(e => e.Protocol == 17 && e.LocalPort == localPort &&
+                    e.RemotePort == remotePort && new System.Net.IPAddress(e.LocalAddr).Equals(localIp) &&
+                    new System.Net.IPAddress(e.RemoteAddr).Equals(remoteIp));
+                if (flow != null && HasUdpBinding(flow)) return true;
+                RequestSafetyStop("Captura parada: fluxo UDP do PID não confirmado, expirado ou socket compartilhado/ambíguo.");
+                return false;
+            }
             // Revalidate the full tuple, not either port or an arbitrary loopback packet.
             var owned = ReadEndpoints();
-            if (!owned.Any(e => e.Protocol == 6 && e.RemotePort != 0))
+            if (!owned.Any(e => e.Protocol == 6 && e.RemotePort != 0) && ReadUdpFlows().Length == 0)
                 RequestSafetyStop("Captura parada: nenhuma conexão TCP/IPv4 do alvo pôde ser confirmada.");
             return owned.Any(e => e.Protocol == 6 && e.LocalPort == localPort &&
                 e.RemotePort == remotePort && new System.Net.IPAddress(e.LocalAddr).Equals(localIp) &&
@@ -742,11 +770,20 @@ public sealed class PacketEngine : IDisposable
         if (version == 4)
         {
             int ihl = (b0 & 0x0F) * 4;
-            if (ihl < 20 || length < ihl + 20) return false;
+            if (ihl < 20 || length < ihl + 8) return false;
             // Reject fragments: no reliable transport tuple on every fragment.
             if ((Marshal.ReadByte(buffer, 6) & 0x3F) != 0 || Marshal.ReadByte(buffer, 7) != 0) return false;
 
             byte protocol = Marshal.ReadByte(buffer, 9);
+            int transportLength = protocol == 6 ? 20 : protocol == 17 ? 8 : int.MaxValue;
+            int totalLength = (Marshal.ReadByte(buffer, 2) << 8) | Marshal.ReadByte(buffer, 3);
+            if ((protocol != 6 && protocol != 17) || length < ihl + transportLength ||
+                totalLength > length || totalLength < ihl + transportLength) return false;
+            if (protocol == 17)
+            {
+                int udpLength = (Marshal.ReadByte(buffer, ihl + 4) << 8) | Marshal.ReadByte(buffer, ihl + 5);
+                if (udpLength < 8 || udpLength > totalLength - ihl) return false;
+            }
 
             byte[] srcBytes = new byte[4];
             byte[] dstBytes = new byte[4];
