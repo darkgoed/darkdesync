@@ -1,0 +1,827 @@
+using System.Collections.ObjectModel;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Threading;
+using DarkDesync.Core;
+using DarkDesync.Models;
+using DarkDesync.Services;
+
+namespace DarkDesync.ViewModels;
+
+public sealed class MainViewModel : ViewModelBase, IDisposable
+{
+    private readonly SettingsStore _settingsStore;
+    private readonly ProcessService _processService;
+    public ObservableCollection<string> ThrottleModeOptions { get; } = new() { "No atalho / ciclo", "Contínuo (captura ligada)" };
+    private bool _cycleProfileEnabled = true;
+    public bool CycleProfileEnabled
+    {
+        get => _cycleProfileEnabled;
+        set
+        {
+            if (!SetProperty(ref _cycleProfileEnabled, value)) return;
+            if (_packetEngine != null) _packetEngine.CycleDropEnabled = value;
+            if (!value) _controller.CancelCycle();
+        }
+    }
+    private string _selectedThrottleMode = "No atalho / ciclo";
+    public string SelectedThrottleMode
+    {
+        get => _selectedThrottleMode;
+        set
+        {
+            if (!ThrottleModeOptions.Contains(value) || !SetProperty(ref _selectedThrottleMode, value)) return;
+            if (_packetEngine != null) _packetEngine.ThrottleContinuous = value == ThrottleModeOptions[1];
+            _controller.CancelCycle();
+        }
+    }
+    private string _settingsStatus = "Salve para reutilizar ao abrir. O alvo não é salvo.";
+    public string SettingsStatus { get => _settingsStatus; private set => SetProperty(ref _settingsStatus, value); }
+    public string SettingsPath => _settingsStore.FilePath;
+    public ICommand SaveSettingsCommand { get; }
+    public ICommand LoadSettingsCommand { get; }
+    public ICommand ResetSettingsCommand { get; }
+    private readonly HotkeyService _hotkeyService;
+    private readonly PacketEngine? _packetEngine;
+    private readonly DesyncController _controller;
+    private readonly Dispatcher _dispatcher;
+    private readonly DispatcherTimer _statsTimer;
+
+    // Observable collections
+    public ObservableCollection<ProcessInfo> Processes { get; } = new();
+    public ObservableCollection<IntensityProfile> Profiles { get; } = new();
+    public ObservableCollection<CycleRecord> History { get; } = new();
+    public ObservableCollection<string> Logs { get; } = new();
+
+    public Dictionary<string, int> AvailableHotkeys { get; }
+
+    public ObservableCollection<string> FilterModeOptions { get; } = new()
+    {
+        "Outbound (All Sending Packets — Padrão Clumsy)",
+        "Todo o Tráfego (Inbound + Outbound)",
+        "Apenas Portas da Aplicação",
+        "Personalizado"
+    };
+
+    private string _selectedFilterModeText = "Outbound (All Sending Packets — Padrão Clumsy)";
+    public string SelectedFilterModeText
+    {
+        get => _selectedFilterModeText;
+        set
+        {
+            if (SetProperty(ref _selectedFilterModeText, value))
+            {
+                ApplyFilterMode();
+            }
+        }
+    }
+
+    private string _customFilterText = "outbound";
+    public string CustomFilterText
+    {
+        get => _customFilterText;
+        set
+        {
+            if (SetProperty(ref _customFilterText, value))
+            {
+                if (GetFilterMode() == FilterMode.Custom)
+                {
+                    ApplyFilterMode();
+                }
+            }
+        }
+    }
+
+    public bool IsCustomFilterVisible => GetFilterMode() == FilterMode.Custom;
+
+    // Properties
+    private ProcessInfo? _selectedProcess;
+    public ProcessInfo? SelectedProcess
+    {
+        get => _selectedProcess;
+        set
+        {
+            if (SetProperty(ref _selectedProcess, value))
+            {
+                _controller.TargetProcess = value;
+                if (value != null && OnlyTargetForeground)
+                {
+                    _hotkeyService.SetTargetWindow(value.MainWindowHandle);
+                }
+                else
+                {
+                    _hotkeyService.SetTargetWindow(IntPtr.Zero);
+                }
+
+                AddLog($"[PROCESSO] Alvo: {value?.ProcessName ?? "Nenhum"} (PID: {value?.ProcessId ?? 0})");
+
+                if (GetFilterMode() == FilterMode.ProcessPorts)
+                {
+                    ApplyFilterMode();
+                }
+            }
+        }
+    }
+
+    private IntensityProfile _selectedProfile;
+    public IntensityProfile SelectedProfile
+    {
+        get => _selectedProfile;
+        set
+        {
+            if (SetProperty(ref _selectedProfile, value))
+            {
+                _controller.ActiveProfile = new IntensityProfile { Name = value.Name, DurationMs = value.DurationMs, DropPercentage = value.DropPercentage, Color = value.Color };
+                CustomDurationMs = value.DurationMs;
+                DropPercentage = value.DropPercentage;
+                AddLog($"[PERFIL] {value.Name} ({value.DurationMs}ms, {value.DropPercentage}%)");
+            }
+        }
+    }
+
+    private int _customDurationMs = 800;
+    public int CustomDurationMs
+    {
+        get => _customDurationMs;
+        set
+        {
+            if (SetProperty(ref _customDurationMs, Math.Clamp(value, 50, 10000)))
+            {
+                if (SelectedProfile != null)
+                {
+                    _controller.ActiveProfile.DurationMs = _customDurationMs;
+                }
+            }
+        }
+    }
+
+    private int _dropPercentage = 100;
+    public int DropPercentage
+    {
+        get => _dropPercentage;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 100);
+            if (SetProperty(ref _dropPercentage, clamped))
+            {
+                if (SelectedProfile != null)
+                {
+                    _controller.ActiveProfile.DropPercentage = clamped;
+                }
+                _packetEngine?.SetDropPercentage(clamped);
+            }
+        }
+    }
+
+    // Throttle Properties (Clumsy style: Timeframe, Chance, Speed)
+    private bool _throttleEnabled = false;
+    public bool ThrottleEnabled
+    {
+        get => _throttleEnabled;
+        set
+        {
+            if (SetProperty(ref _throttleEnabled, value))
+            {
+                if (!value) _controller.CancelCycle();
+                if (_packetEngine != null)
+                {
+                    _packetEngine.ThrottleEnabled = value;
+                }
+                AddLog($"[THROTTLE] {(value ? "Habilitado" : "Desabilitado")}");
+
+            }
+        }
+    }
+
+    private int _throttleTimeframeMs = 1000;
+    public int ThrottleTimeframeMs
+    {
+        get => _throttleTimeframeMs;
+        set
+        {
+            int clamped = Math.Clamp(value, 10, 3000);
+            if (SetProperty(ref _throttleTimeframeMs, clamped))
+            {
+                if (_packetEngine != null)
+                {
+                    _packetEngine.ThrottleTimeframeMs = clamped;
+                }
+            }
+        }
+    }
+
+    private int _throttleChance = 100;
+    public int ThrottleChance
+    {
+        get => _throttleChance;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 100);
+            if (SetProperty(ref _throttleChance, clamped))
+            {
+                if (_packetEngine != null)
+                {
+                    _packetEngine.ThrottleChance = clamped;
+                }
+            }
+        }
+    }
+
+    private int _throttleReleaseDelayMs = 0;
+    public int ThrottleReleaseDelayMs
+    {
+        get => _throttleReleaseDelayMs;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 200);
+            if (SetProperty(ref _throttleReleaseDelayMs, clamped))
+            {
+                if (_packetEngine != null)
+                {
+                    _packetEngine.ThrottleReleaseDelayMs = clamped;
+                }
+                OnPropertyChanged(nameof(ThrottleSpeedDisplay));
+            }
+        }
+    }
+
+    private int _throttleJitterMs;
+    public int ThrottleJitterMs
+    {
+        get => _throttleJitterMs;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 2000);
+            if (SetProperty(ref _throttleJitterMs, clamped) && _packetEngine != null)
+                _packetEngine.ThrottleJitterMs = clamped;
+        }
+    }
+
+    public string ThrottleSpeedDisplay => _throttleReleaseDelayMs == 0
+        ? "0 ms • rajada"
+        : $"{_throttleReleaseDelayMs} ms entre pacotes";
+
+    private string _selectedHotkeyName = "Espaço";
+    public string SelectedHotkeyName
+    {
+        get => _selectedHotkeyName;
+        set
+        {
+            if (SetProperty(ref _selectedHotkeyName, value))
+            {
+                if (AvailableHotkeys.TryGetValue(value, out int vk))
+                {
+                    _hotkeyService.SetHotkey(vk);
+                    AddLog($"[ATALHO] Tecla de acionamento: {value}");
+                }
+            }
+        }
+    }
+
+    // Diagnostic mode selection
+    private string _selectedDiagnosticModeText = "Desativado";
+    public List<string> DiagnosticModeOptions { get; } = new() { "Desativado", "Outbound Freeze", "Burst Loss", "Asymmetric Loss" };
+
+    public string SelectedDiagnosticModeText
+    {
+        get => _selectedDiagnosticModeText;
+        set
+        {
+            if (SetProperty(ref _selectedDiagnosticModeText, value))
+            {
+                OnPropertyChanged(nameof(IsBurstLossVisible));
+                OnPropertyChanged(nameof(IsAsymmetricLossVisible));
+            }
+        }
+    }
+    public bool IsBurstLossVisible => _selectedDiagnosticModeText == "Burst Loss";
+    public bool IsAsymmetricLossVisible => _selectedDiagnosticModeText == "Asymmetric Loss";
+
+    // Diagnostic properties (0–800 ms, default 150 ms)
+    private int _diagnosticCycleDurationMs = 150;
+    public int DiagnosticCycleDurationMs
+    {
+        get => _diagnosticCycleDurationMs;
+        set => SetProperty(ref _diagnosticCycleDurationMs, Math.Clamp(value, 0, 800));
+    }
+
+    private int _burstLossPercentage = 50;
+    public int BurstLossPercentage
+    {
+        get => _burstLossPercentage;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 100);
+            if (SetProperty(ref _burstLossPercentage, clamped) && _packetEngine != null)
+            {
+                _packetEngine.BurstLossPercentage = clamped;
+            }
+        }
+    }
+
+    private int _asymmetricInboundLossPercentage = 25;
+    public int AsymmetricInboundLossPercentage
+    {
+        get => _asymmetricInboundLossPercentage;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 100);
+            if (SetProperty(ref _asymmetricInboundLossPercentage, clamped) && _packetEngine != null)
+            {
+                _packetEngine.AsymmetricInboundLossPercentage = clamped;
+            }
+        }
+    }
+
+    private int _asymmetricOutboundLossPercentage = 75;
+    public int AsymmetricOutboundLossPercentage
+    {
+        get => _asymmetricOutboundLossPercentage;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 100);
+            if (SetProperty(ref _asymmetricOutboundLossPercentage, clamped) && _packetEngine != null)
+            {
+                _packetEngine.AsymmetricOutboundLossPercentage = clamped;
+            }
+        }
+    }
+
+    private bool _onlyTargetForeground = true;
+    public bool OnlyTargetForeground
+    {
+        get => _onlyTargetForeground;
+        set
+        {
+            if (SetProperty(ref _onlyTargetForeground, value))
+            {
+                if (value && SelectedProcess != null)
+                {
+                    _hotkeyService.SetTargetWindow(SelectedProcess.MainWindowHandle);
+                }
+                else
+                {
+                    _hotkeyService.SetTargetWindow(IntPtr.Zero);
+                }
+            }
+        }
+    }
+
+    private DesyncStateMachine.State _state = DesyncStateMachine.State.Idle;
+    public DesyncStateMachine.State State
+    {
+        get => _state;
+        private set
+        {
+            if (SetProperty(ref _state, value))
+            {
+                OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(StatusColorBrush));
+                OnPropertyChanged(nameof(IsActive));
+            }
+        }
+    }
+
+    public string StatusText => State switch
+    {
+        DesyncStateMachine.State.Idle => "IDLE",
+        DesyncStateMachine.State.Active => "DESYNC ATIVO",
+        DesyncStateMachine.State.Restoring => "RESTAURANDO",
+        _ => "DESCONHECIDO"
+    };
+
+    public string StatusColorBrush => State switch
+    {
+        DesyncStateMachine.State.Idle => "#A78BFA",       // Neon / Cool Blue
+        DesyncStateMachine.State.Active => "#EF233C",     // Vivid Red
+        DesyncStateMachine.State.Restoring => "#FF9F1C",  // Warning Orange
+        _ => "#6C757D"
+    };
+
+    public bool IsActive => State == DesyncStateMachine.State.Active;
+
+    private int _remainingMs = 0;
+    public int RemainingMs
+    {
+        get => _remainingMs;
+        private set
+        {
+            if (SetProperty(ref _remainingMs, value))
+            {
+                OnPropertyChanged(nameof(CountdownDisplay));
+            }
+        }
+    }
+
+    private int _totalMs = 800;
+    public int TotalMs
+    {
+        get => _totalMs;
+        private set => SetProperty(ref _totalMs, value);
+    }
+
+    private double _countdownProgress = 0.0;
+    public double CountdownProgress
+    {
+        get => _countdownProgress;
+        set => SetProperty(ref _countdownProgress, value);
+    }
+
+    public string CountdownDisplay => State == DesyncStateMachine.State.Active
+        ? $"{_remainingMs} ms"
+        : "0 ms (Aguardando)";
+
+    private bool _isEngineRunning = false;
+    public bool IsEngineRunning
+    {
+        get => _isEngineRunning;
+        private set
+        {
+            if (SetProperty(ref _isEngineRunning, value))
+            {
+                OnPropertyChanged(nameof(EngineToggleText));
+                OnPropertyChanged(nameof(EngineStatusColor));
+            }
+        }
+    }
+
+    public string EngineToggleText => IsEngineRunning ? "Parar Captura" : "Iniciar Captura";
+    public string EngineStatusColor => IsEngineRunning ? "#06D6A0" : "#E63946";
+
+    private long _packetsIntercepted = 0;
+    public long PacketsIntercepted
+    {
+        get => _packetsIntercepted;
+        set => SetProperty(ref _packetsIntercepted, value);
+    }
+
+    private long _packetsDropped = 0;
+    public long PacketsDropped
+    {
+        get => _packetsDropped;
+        set => SetProperty(ref _packetsDropped, value);
+    }
+
+    private long _packetsPassed = 0;
+    public long PacketsPassed
+    {
+        get => _packetsPassed;
+        set => SetProperty(ref _packetsPassed, value);
+    }
+
+    private long _packetsThrottled = 0;
+    public long PacketsThrottled
+    {
+        get => _packetsThrottled;
+        set => SetProperty(ref _packetsThrottled, value);
+    }
+
+    private string _filterStatusText = "Captura parada • filtro preparado: outbound";
+    public string FilterStatusText
+    {
+        get => _filterStatusText;
+        private set => SetProperty(ref _filterStatusText, value);
+    }
+
+    // Commands
+    public ICommand TriggerCycleCommand { get; }
+    public ICommand CancelCycleCommand { get; }
+    public ICommand ToggleEngineCommand { get; }
+    public ICommand RefreshProcessesCommand { get; }
+    public ICommand ClearHistoryCommand { get; }
+    public ICommand SelectProfileCommand { get; }
+
+    public MainViewModel(
+        ProcessService processService,
+        HotkeyService hotkeyService,
+        DesyncController controller,
+        PacketEngine? packetEngine = null,
+        SettingsStore? settingsStore = null)
+    {
+        _processService = processService;
+        _hotkeyService = hotkeyService;
+        _controller = controller;
+        _packetEngine = packetEngine;
+        _settingsStore = settingsStore ?? new SettingsStore();
+        _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+
+        AvailableHotkeys = HotkeyService.GetAvailableKeys();
+
+        // Initialize Profiles
+        foreach (var p in IntensityProfile.Defaults)
+        {
+            Profiles.Add(p);
+        }
+        _selectedProfile = Profiles[0];
+        _controller.ActiveProfile = IntensityProfile.Weak;
+        _customDurationMs = _selectedProfile.DurationMs;
+        _dropPercentage = _selectedProfile.DropPercentage;
+
+        // Commands
+        TriggerCycleCommand = new RelayCommand(ExecuteTriggerCycle);
+        SaveSettingsCommand = new RelayCommand(SaveSettings);
+        LoadSettingsCommand = new RelayCommand(LoadSettings);
+        ResetSettingsCommand = new RelayCommand(() => ApplySettings(new AppSettings()));
+        CancelCycleCommand = new RelayCommand(ExecuteCancelCycle);
+        ToggleEngineCommand = new RelayCommand(ExecuteToggleEngine);
+        RefreshProcessesCommand = new RelayCommand(RefreshProcessList);
+        ClearHistoryCommand = new RelayCommand(() => History.Clear());
+        SelectProfileCommand = new RelayCommand(p =>
+        {
+            if (p is IntensityProfile prof)
+            {
+                SelectedProfile = prof;
+                CustomDurationMs = prof.DurationMs;
+                DropPercentage = prof.DropPercentage;
+            }
+        });
+
+        // Wire Controller events
+        _controller.StateChanged += s => _dispatcher.InvokeAsync(() => State = s);
+        // Countdown remains inside the controller; the controls-only UI does not
+        // subscribe or dispatch per-tick visual updates.
+        _controller.CycleFinished += record => _dispatcher.InvokeAsync(() =>
+        {
+            History.Insert(0, record);
+            AddLog($"[CICLO] Finalizado: {record.Summary}");
+        });
+        _controller.LogMessage += msg => _dispatcher.InvokeAsync(() => AddLog(msg));
+
+        // Wire PacketEngine events if present
+        if (_packetEngine != null)
+        {
+            // Pull telemetry on the UI timer only. Never queue UI work per packet.
+            _packetEngine.ErrorOccurred += err => _dispatcher.InvokeAsync(() =>
+            {
+                AddLog($"[ERRO MOTOR] {err}");
+            });
+        }
+
+        // Wire Hotkey
+        _hotkeyService.HotkeyPressed += () =>
+        {
+            _dispatcher.InvokeAsync(() =>
+            {
+                AddLog("[HOTKEY] Tecla acionada via teclado");
+                ExecuteTriggerCycle();
+            });
+        };
+
+        // Low-priority telemetry, independent of packet rate (4 updates/second).
+        _statsTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(250)
+        };
+        _statsTimer.Tick += (s, e) =>
+        {
+            // Avoid rendering telemetry while minimized; refresh on the next visible tick.
+            if (Application.Current?.MainWindow?.WindowState == WindowState.Minimized)
+                return;
+
+            if (_packetEngine != null)
+            {
+                PacketsIntercepted = _packetEngine.PacketsIntercepted;
+                PacketsDropped = _packetEngine.PacketsDropped;
+                PacketsPassed = _packetEngine.PacketsPassedThrough;
+                PacketsThrottled = _packetEngine.PacketsThrottled;
+            }
+        };
+        // Retain the stopped timer's compatibility surface for diagnostics/tests.
+        // The controls-only view has no telemetry polling or countdown rendering.
+
+        // Populate initial process list
+        RefreshProcessList();
+
+        // Capture is opt-in: only the capture button, cycle button or hotkey may start it.
+
+        AddLog("[SISTEMA] DarkDesync inicializado com sucesso.");
+    }
+
+    public void EnsureEngineRunning()
+    {
+        if (_packetEngine != null)
+        {
+            _packetEngine.ThrottleEnabled = ThrottleEnabled;
+            _packetEngine.CycleDropEnabled = CycleProfileEnabled;
+            _packetEngine.ThrottleContinuous = SelectedThrottleMode == ThrottleModeOptions[1];
+            _packetEngine.ThrottleTimeframeMs = ThrottleTimeframeMs;
+            _packetEngine.ThrottleChance = ThrottleChance;
+            _packetEngine.ThrottleReleaseDelayMs = ThrottleReleaseDelayMs;
+            _packetEngine.ThrottleJitterMs = ThrottleJitterMs;
+            _packetEngine.BurstLossPercentage = BurstLossPercentage;
+            _packetEngine.AsymmetricInboundLossPercentage = AsymmetricInboundLossPercentage;
+            _packetEngine.AsymmetricOutboundLossPercentage = AsymmetricOutboundLossPercentage;
+
+            if (!_packetEngine.IsRunning)
+            {
+                var mode = GetFilterMode();
+                uint pid = SelectedProcess?.ProcessId ?? 0;
+                bool ok = _packetEngine.Start(mode, pid, DropPercentage, CustomFilterText);
+                if (ok)
+                {
+                    IsEngineRunning = true;
+                    FilterStatusText = $"Filtro: {_packetEngine.CurrentFilter}";
+                    AddLog($"[MOTOR] Captura WinDivert iniciada por ação explícita ({_packetEngine.CurrentFilter}).");
+                }
+            }
+        }
+    }
+
+    private FilterMode GetFilterMode()
+    {
+        return SelectedFilterModeText switch
+        {
+            "Outbound (All Sending Packets — Padrão Clumsy)" => FilterMode.Outbound,
+            "Todo o Tráfego (Inbound + Outbound)" => FilterMode.AllTraffic,
+            "Apenas Portas da Aplicação" => FilterMode.ProcessPorts,
+            "Personalizado" => FilterMode.Custom,
+            _ => FilterMode.Outbound
+        };
+    }
+
+    private void ApplyFilterMode()
+    {
+        OnPropertyChanged(nameof(IsCustomFilterVisible));
+        var mode = GetFilterMode();
+        uint pid = SelectedProcess?.ProcessId ?? 0;
+
+        if (_packetEngine != null && _packetEngine.IsRunning)
+        {
+            _packetEngine.UpdateFilter(mode, pid, CustomFilterText);
+            FilterStatusText = $"Filtro: {_packetEngine.CurrentFilter}";
+            AddLog($"[FILTRO] Modo alterado para: {SelectedFilterModeText} ({_packetEngine.CurrentFilter})");
+        }
+        else
+        {
+            FilterStatusText = $"Filtro preparado: {SelectedFilterModeText} • captura parada";
+        }
+    }
+
+    private void ExecuteTriggerCycle()
+    {
+        if (!CycleProfileEnabled && !(ThrottleEnabled && SelectedThrottleMode == ThrottleModeOptions[0]))
+        {
+            AddLog("[AVISO] Nenhum efeito de ciclo habilitado. Use Iniciar Captura para o modo contínuo.");
+            return;
+        }
+        if (State != DesyncStateMachine.State.Idle)
+        {
+            AddLog("[AVISO] Ciclo já em execução. Acionamento ignorado.");
+            return;
+        }
+
+        EnsureEngineRunning();
+
+        if (_packetEngine != null && !_packetEngine.IsRunning) return;
+
+        var diagMode = _selectedDiagnosticModeText switch
+        {
+            "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
+            "Burst Loss" => DiagnosticMode.BurstLoss,
+            "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
+            _ => DiagnosticMode.None
+        };
+
+        if (diagMode != DiagnosticMode.None)
+        {
+            bool started = _controller.TriggerDiagnosticCycle(diagMode, DiagnosticCycleDurationMs);
+            if (!started) AddLog("[AVISO] Não foi possível iniciar diagnóstico.");
+            return;
+        }
+
+        bool cycleStarted = _controller.TriggerCycle();
+        if (!cycleStarted) AddLog("[AVISO] Não foi possível iniciar ciclo.");
+    }
+
+    private void ExecuteCancelCycle()
+    {
+        _controller.CancelCycle();
+        AddLog("[SISTEMA] Ciclo cancelado pelo usuário.");
+    }
+
+    private void ExecuteToggleEngine()
+    {
+        if (IsEngineRunning)
+        {
+            _controller.CancelCycle();
+            _packetEngine?.Stop();
+            IsEngineRunning = false;
+            FilterStatusText = "Filtro: Desativado";
+            AddLog("[MOTOR] Interceptação parada.");
+        }
+        else
+        {
+            EnsureEngineRunning();
+        }
+    }
+
+    public void LoadSettings()
+    {
+        try
+        {
+            var settings = _settingsStore.Load();
+            ApplySettings(settings);
+            SettingsStatus = "Configuração carregada • captura parada.";
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or System.IO.InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        { SettingsStatus = $"Não foi possível carregar: {ex.Message}"; }
+    }
+
+    private void SaveSettings()
+    {
+        try
+        {
+            _settingsStore.Save(new AppSettings
+            {
+                CycleProfileEnabled = CycleProfileEnabled, ThrottleEnabled = ThrottleEnabled,
+                ThrottleMode = SelectedThrottleMode == ThrottleModeOptions[1] ? ThrottleMode.Continuous : ThrottleMode.Hotkey,
+                DurationMs = CustomDurationMs, DropPercentage = DropPercentage, RetentionMs = ThrottleTimeframeMs,
+                Chance = ThrottleChance, SpacingMs = ThrottleReleaseDelayMs, JitterMs = ThrottleJitterMs,
+                Hotkey = SelectedHotkeyName, OnlyTargetForeground = OnlyTargetForeground,
+                FilterMode = GetFilterMode(), CustomFilter = CustomFilterText,
+                DiagnosticDurationMs = DiagnosticCycleDurationMs,
+                BurstLossPercentage = BurstLossPercentage,
+                AsymmetricInboundPercentage = AsymmetricInboundLossPercentage,
+                AsymmetricOutboundPercentage = AsymmetricOutboundLossPercentage,
+                DiagnosticMode = _selectedDiagnosticModeText switch
+                {
+                    "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
+                    "Burst Loss" => DiagnosticMode.BurstLoss,
+                    "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
+                    _ => DiagnosticMode.None
+                }
+            });
+            SettingsStatus = "Configuração salva. O alvo deve ser selecionado novamente.";
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        { SettingsStatus = $"Não foi possível salvar: {ex.Message}"; }
+    }
+
+    private void ApplySettings(AppSettings settings)
+    {
+        var s = settings.Validate();
+        _controller.CancelCycle();
+        _packetEngine?.Stop();
+        IsEngineRunning = false;
+        CycleProfileEnabled = s.CycleProfileEnabled;
+        SelectedThrottleMode = ThrottleModeOptions[s.ThrottleMode == ThrottleMode.Continuous ? 1 : 0];
+        ThrottleEnabled = s.ThrottleEnabled; CustomDurationMs = s.DurationMs; DropPercentage = s.DropPercentage;
+        ThrottleTimeframeMs = s.RetentionMs; ThrottleChance = s.Chance; ThrottleReleaseDelayMs = s.SpacingMs;
+        ThrottleJitterMs = s.JitterMs; SelectedHotkeyName = s.Hotkey; OnlyTargetForeground = s.OnlyTargetForeground;
+        DiagnosticCycleDurationMs = s.DiagnosticDurationMs;
+        BurstLossPercentage = s.BurstLossPercentage;
+        AsymmetricInboundLossPercentage = s.AsymmetricInboundPercentage;
+        AsymmetricOutboundLossPercentage = s.AsymmetricOutboundPercentage;
+        SelectedDiagnosticModeText = s.DiagnosticMode switch
+        {
+            DiagnosticMode.OutboundFreeze => "Outbound Freeze",
+            DiagnosticMode.BurstLoss => "Burst Loss",
+            DiagnosticMode.AsymmetricLoss => "Asymmetric Loss",
+            _ => "Desativado"
+        };
+        SelectedProcess = null;
+        SelectedFilterModeText = s.FilterMode switch
+        {
+            FilterMode.AllTraffic => FilterModeOptions[1], FilterMode.ProcessPorts => FilterModeOptions[2],
+            FilterMode.Custom => FilterModeOptions[3], _ => FilterModeOptions[0]
+        };
+        CustomFilterText = s.CustomFilter;
+        ApplyFilterMode();
+        SettingsStatus = "Padrões restaurados • captura parada. Salve para manter.";
+    }
+
+    public void RefreshProcessList()
+    {
+        var list = _processService.GetWindowedProcesses();
+        Processes.Clear();
+        foreach (var p in list)
+        {
+            Processes.Add(p);
+        }
+
+        if (SelectedProcess != null)
+        {
+            var match = Processes.FirstOrDefault(p => p.ProcessId == SelectedProcess.ProcessId);
+            if (match != null)
+                SelectedProcess = match;
+        }
+
+        AddLog($"[PROCESSO] Lista atualizada: {Processes.Count} janelas encontradas.");
+    }
+
+    public void AddLog(string line)
+    {
+        string timestamped = $"[{DateTime.Now:HH:mm:ss.fff}] {line}";
+        Logs.Insert(0, timestamped);
+        if (Logs.Count > 200)
+            Logs.RemoveAt(Logs.Count - 1);
+    }
+
+    public void Dispose()
+    {
+        _statsTimer.Stop();
+        _hotkeyService.Dispose();
+        _controller.Dispose();
+        _packetEngine?.Dispose();
+    }
+}

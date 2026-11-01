@@ -1,0 +1,184 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="8a39939f-9e31-4094-9c66-88cba7f3a54c" name="Arthur@DESKTOP-G344COI 2026-10-13 21:19:56" runUser="DESKTOP-G344COI\Arthur" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-10-13T21:19:56.8870007-03:00" queuing="2026-10-13T21:19:56.8870014-03:00" start="2026-10-13T21:19:55.5930231-03:00" finish="2026-10-13T21:19:57.1433415-03:00" />
+  <TestSettings name="default" id="47665be8-2e8e-4804-a7ac-e3ee5918cd12">
+    <Deployment runDeploymentRoot="Arthur_DESKTOP-G344COI_2026-10-13_21_19_56" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="301416a9-4b03-4a04-89d2-5821d1d9e9d5" testId="710610c3-5b6b-520e-78c7-24784c667787" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Stop_LatePacketCannotOvertakeHeldPackets" computerName="DESKTOP-G344COI" duration="00:00:00.0004780" startTime="2026-10-13T21:19:56.8454044-03:00" endTime="2026-10-13T21:19:56.8454044-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="301416a9-4b03-4a04-89d2-5821d1d9e9d5" />
+    <UnitTestResult executionId="50d557c8-5c19-49a6-9af2-677e21bd1fe5" testId="d3302730-a816-b439-f5da-7ce16586f4b1" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_UsesStrictPercentageBoundary(roll: 49, queued: 1, passed: 0)" computerName="DESKTOP-G344COI" duration="00:00:00.0021254" startTime="2026-10-13T21:19:56.6340508-03:00" endTime="2026-10-13T21:19:56.6340509-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="50d557c8-5c19-49a6-9af2-677e21bd1fe5" />
+    <UnitTestResult executionId="7184b2ae-770d-42f8-8285-6f92fba3a0f3" testId="baf472b5-9854-1609-9103-6f6771114192" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ImplicitDrop_WithoutThrottle_RespectsPercentage(percentage: 0, dropped: 0, passed: 1)" computerName="DESKTOP-G344COI" duration="00:00:00.0001867" startTime="2026-10-13T21:19:56.8433976-03:00" endTime="2026-10-13T21:19:56.8433976-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7184b2ae-770d-42f8-8285-6f92fba3a0f3" />
+    <UnitTestResult executionId="20f41fcd-c835-49ea-ba88-2faa992293ac" testId="a9ab86ad-be0b-f3e1-a301-d70c09695aaa" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Jitter_SamplesInclusiveBounds_ClampsDelayAtZero(high: True, expectedMs: 110)" computerName="DESKTOP-G344COI" duration="00:00:00.0004763" startTime="2026-10-13T21:19:56.8430027-03:00" endTime="2026-10-13T21:19:56.8430029-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="20f41fcd-c835-49ea-ba88-2faa992293ac" />
+    <UnitTestResult executionId="70992627-7919-42a2-b2c2-1b65e4c43459" testId="6dc3a348-72df-d36d-9a6a-b7466278d353" testName="DarkDesync.Tests.PacketEngineSchedulingTests.FailedPassThrough_DoesNotCountAsDelivered" computerName="DESKTOP-G344COI" duration="00:00:00.0007875" startTime="2026-10-13T21:19:56.8450140-03:00" endTime="2026-10-13T21:19:56.8450141-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="70992627-7919-42a2-b2c2-1b65e4c43459" />
+    <UnitTestResult executionId="7bebdb56-7a6d-4a95-834d-a7b51c37af96" testId="99a6c872-d87f-3cea-5bbf-c89d4aa58b84" testName="DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: -1, expected: 0)" computerName="DESKTOP-G344COI" duration="00:00:00.0000129" startTime="2026-10-13T21:19:56.8103761-03:00" endTime="2026-10-13T21:19:56.8103761-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7bebdb56-7a6d-4a95-834d-a7b51c37af96" />
+    <UnitTestResult executionId="0f57f12d-3708-40fc-8715-3e515d8ce3c6" testId="df48f2f9-7440-217c-b400-3a653a670a38" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Stop_LateReceivedPacketIsNotOrphanedInQueue" computerName="DESKTOP-G344COI" duration="00:00:00.0009501" startTime="2026-10-13T21:19:56.8452151-03:00" endTime="2026-10-13T21:19:56.8452152-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="0f57f12d-3708-40fc-8715-3e515d8ce3c6" />
+    <UnitTestResult executionId="5ed7cde4-d163-4511-88e4-dabf0faf5746" testId="07fcebf3-9e23-be50-f051-d952eac120df" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Active_DefaultDrop100_ThrottleEnabled_QueuesInsteadOfDropping" computerName="DESKTOP-G344COI" duration="00:00:00.0001318" startTime="2026-10-13T21:19:56.8451532-03:00" endTime="2026-10-13T21:19:56.8451545-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5ed7cde4-d163-4511-88e4-dabf0faf5746" />
+    <UnitTestResult executionId="5da18e9c-be7f-4ead-a26b-f4efa2dfe13b" testId="90441ef6-ec83-dc3c-756f-057c35f6216f" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing(forceIdle: True)" computerName="DESKTOP-G344COI" duration="00:00:00.0134007" startTime="2026-10-13T21:19:56.6455153-03:00" endTime="2026-10-13T21:19:56.6455156-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5da18e9c-be7f-4ead-a26b-f4efa2dfe13b" />
+    <UnitTestResult executionId="9df0d1f8-ee90-4746-ac8d-ed341c8f02e0" testId="e631798d-551a-7bce-a01a-036fafa0e09e" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_Extremes_SelectOnlyThrottleOrPass(chance: 0, queues: False)" computerName="DESKTOP-G344COI" duration="00:00:00.0001832" startTime="2026-10-13T21:19:56.8433146-03:00" endTime="2026-10-13T21:19:56.8433147-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9df0d1f8-ee90-4746-ac8d-ed341c8f02e0" />
+    <UnitTestResult executionId="628b6cae-003e-4fa4-a5e8-9c7462c3b427" testId="56456be0-a415-70cf-d5b0-765c2fa1bd31" testName="DarkDesync.Tests.PacketEngineSchedulingTests.FailedThrottleRelease_IsCountedAsDropNotDelivery" computerName="DESKTOP-G344COI" duration="00:00:00.0002186" startTime="2026-10-13T21:19:56.8454996-03:00" endTime="2026-10-13T21:19:56.8454996-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="628b6cae-003e-4fa4-a5e8-9c7462c3b427" />
+    <UnitTestResult executionId="1657aed0-e89f-4539-98fa-c3c0a5e1b78b" testId="ec5e0815-0850-0e90-6396-4274d939ca45" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_Extremes_SelectOnlyThrottleOrPass(chance: 100, queues: True)" computerName="DESKTOP-G344COI" duration="00:00:00.0002703" startTime="2026-10-13T21:19:56.8432802-03:00" endTime="2026-10-13T21:19:56.8432802-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1657aed0-e89f-4539-98fa-c3c0a5e1b78b" />
+    <UnitTestResult executionId="2774bc88-d7cb-4f5a-851a-a19227935c9f" testId="d34bcca9-54b5-7698-a4be-5583c1699dbd" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ImplicitDrop_WithoutThrottle_RespectsPercentage(percentage: 100, dropped: 1, passed: 0)" computerName="DESKTOP-G344COI" duration="00:00:00.0002200" startTime="2026-10-13T21:19:56.8434424-03:00" endTime="2026-10-13T21:19:56.8434425-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2774bc88-d7cb-4f5a-851a-a19227935c9f" />
+    <UnitTestResult executionId="ea2be264-1a7d-4fa5-a64d-09e865792dbe" testId="24368d3f-00ca-cded-ec65-500a1091b5a8" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Restore_SerializesWithInFlightEnqueue" computerName="DESKTOP-G344COI" duration="00:00:00.1565087" startTime="2026-10-13T21:19:56.8056359-03:00" endTime="2026-10-13T21:19:56.8056362-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ea2be264-1a7d-4fa5-a64d-09e865792dbe" />
+    <UnitTestResult executionId="5fae48b2-f5db-49da-9d0a-8710e9c4fc8c" testId="653ec208-8dac-45f6-2c4f-d9aec61cd168" testName="DarkDesync.Tests.PacketEngineLoopbackTests.CustomEphemeralLoopback_DefaultDrop100_ThrottleJitterAndRestoreDeliver" computerName="DESKTOP-G344COI" duration="00:00:00.4559580" startTime="2026-10-13T21:19:57.0711115-03:00" endTime="2026-10-13T21:19:57.0711118-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5fae48b2-f5db-49da-9d0a-8710e9c4fc8c">
+      <Output>
+        <StdOut>Isolated filter: loopback and ip and udp and ip.SrcAddr == 127.0.0.1 and ip.DstAddr == 127.0.0.1 and udp.SrcPort == 49975 and udp.DstPort == 49974&#xD;
+Throttle+jitter delivery: 414,2 ms; queued=1, dropped=0, sent=1&#xD;
+Restore flush delivery: 0,2 ms</StdOut>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="9a609730-9d6b-4475-adb9-435554dcc172" testId="da28c347-1d2d-cc1b-c957-0ca07fc08604" testName="DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: 123, expected: 123)" computerName="DESKTOP-G344COI" duration="00:00:00.0027466" startTime="2026-10-13T21:19:56.8098325-03:00" endTime="2026-10-13T21:19:56.8098328-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9a609730-9d6b-4475-adb9-435554dcc172" />
+    <UnitTestResult executionId="3a1c7fca-5fd9-4e8b-a070-3591086eaa34" testId="8489bc60-7f26-eda3-b907-123d28dfbeca" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Jitter_SamplesInclusiveBounds_ClampsDelayAtZero(high: False, expectedMs: 0)" computerName="DESKTOP-G344COI" duration="00:00:00.0004306" startTime="2026-10-13T21:19:56.8432326-03:00" endTime="2026-10-13T21:19:56.8432327-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="3a1c7fca-5fd9-4e8b-a070-3591086eaa34" />
+    <UnitTestResult executionId="bb154157-95bf-40fd-af34-f552ab17a0ba" testId="b32705e8-e34b-83c2-1310-52d3c487f463" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing(forceIdle: False)" computerName="DESKTOP-G344COI" duration="00:00:00.0004343" startTime="2026-10-13T21:19:56.6460071-03:00" endTime="2026-10-13T21:19:56.6460073-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="bb154157-95bf-40fd-af34-f552ab17a0ba" />
+    <UnitTestResult executionId="dddbc4c3-6b00-4a07-a8cb-ae509a686486" testId="e5a70d04-549f-395b-de42-863d59ba3035" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_UsesStrictPercentageBoundary(roll: 50, queued: 0, passed: 1)" computerName="DESKTOP-G344COI" duration="00:00:00.0131339" startTime="2026-10-13T21:19:56.6307742-03:00" endTime="2026-10-13T21:19:56.6308127-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="dddbc4c3-6b00-4a07-a8cb-ae509a686486" />
+    <UnitTestResult executionId="59638d78-b811-4ead-8910-8c3dc7a13832" testId="8f217759-07d1-37af-6bad-d58351bf8699" testName="DarkDesync.Tests.PacketEngineSchedulingTests.Release_UsesFrozenJitterDeadlineAndPreservesFifoInBurst" computerName="DESKTOP-G344COI" duration="00:00:00.0003379" startTime="2026-10-13T21:19:56.8453566-03:00" endTime="2026-10-13T21:19:56.8453566-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="59638d78-b811-4ead-8910-8c3dc7a13832" />
+    <UnitTestResult executionId="77241219-84ce-4946-8305-de401a9bc8e5" testId="f7f0f2fc-e853-ecc4-7445-ccef39a93f06" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ConcurrentReleaseAndFlush_PreserveFifoWithoutDuplicates" computerName="DESKTOP-G344COI" duration="00:00:00.0037998" startTime="2026-10-13T21:19:56.8434821-03:00" endTime="2026-10-13T21:19:56.8434822-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="77241219-84ce-4946-8305-de401a9bc8e5" />
+    <UnitTestResult executionId="9eeb4a33-1016-4f32-8e5c-ed25b33701f0" testId="d6919c4e-782c-363b-6603-e5d7de782f05" testName="DarkDesync.Tests.PacketEngineSchedulingTests.DisableThrottle_FlushesImmediatelyAndResetsSpacing" computerName="DESKTOP-G344COI" duration="00:00:00.0002978" startTime="2026-10-13T21:19:56.8454461-03:00" endTime="2026-10-13T21:19:56.8454462-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9eeb4a33-1016-4f32-8e5c-ed25b33701f0" />
+    <UnitTestResult executionId="c2e9f5de-2f3a-489a-aefe-5ae3b5a91bca" testId="224aabbc-f545-49ac-f8f9-9a9e3b11bd75" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ReleaseSpacing_SurvivesAnEmptyQueue" computerName="DESKTOP-G344COI" duration="00:00:00.0010330" startTime="2026-10-13T21:19:56.8435213-03:00" endTime="2026-10-13T21:19:56.8435213-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c2e9f5de-2f3a-489a-aefe-5ae3b5a91bca" />
+    <UnitTestResult executionId="a064dd90-95b6-4965-8b74-a32676b7555b" testId="af4f79f0-fbe1-82c8-05dd-45cccd56c512" testName="DarkDesync.Tests.PacketEngineSchedulingTests.ExplicitDrop_TakesPriorityOverThrottle" computerName="DESKTOP-G344COI" duration="00:00:00.0002538" startTime="2026-10-13T21:19:56.8433564-03:00" endTime="2026-10-13T21:19:56.8433564-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a064dd90-95b6-4965-8b74-a32676b7555b" />
+    <UnitTestResult executionId="5e881173-4259-4bce-8568-564549607819" testId="e449fd7b-120a-6e21-9639-258ff3ce0a85" testName="DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: 2001, expected: 2000)" computerName="DESKTOP-G344COI" duration="00:00:00.0003562" startTime="2026-10-13T21:19:56.8103211-03:00" endTime="2026-10-13T21:19:56.8103213-03:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5e881173-4259-4bce-8568-564549607819" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_UsesStrictPercentageBoundary(roll: 50, queued: 0, passed: 1)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="e5a70d04-549f-395b-de42-863d59ba3035">
+      <Execution id="dddbc4c3-6b00-4a07-a8cb-ae509a686486" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ThrottleChance_UsesStrictPercentageBoundary" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_UsesStrictPercentageBoundary(roll: 49, queued: 1, passed: 0)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="d3302730-a816-b439-f5da-7ce16586f4b1">
+      <Execution id="50d557c8-5c19-49a6-9af2-677e21bd1fe5" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ThrottleChance_UsesStrictPercentageBoundary" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: 123, expected: 123)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="da28c347-1d2d-cc1b-c957-0ca07fc08604">
+      <Execution id="9a609730-9d6b-4475-adb9-435554dcc172" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="JitterSetting_IsClamped" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Stop_LateReceivedPacketIsNotOrphanedInQueue" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="df48f2f9-7440-217c-b400-3a653a670a38">
+      <Execution id="0f57f12d-3708-40fc-8715-3e515d8ce3c6" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Stop_LateReceivedPacketIsNotOrphanedInQueue" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ImplicitDrop_WithoutThrottle_RespectsPercentage(percentage: 0, dropped: 0, passed: 1)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="baf472b5-9854-1609-9103-6f6771114192">
+      <Execution id="7184b2ae-770d-42f8-8285-6f92fba3a0f3" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ImplicitDrop_WithoutThrottle_RespectsPercentage" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ImplicitDrop_WithoutThrottle_RespectsPercentage(percentage: 100, dropped: 1, passed: 0)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="d34bcca9-54b5-7698-a4be-5583c1699dbd">
+      <Execution id="2774bc88-d7cb-4f5a-851a-a19227935c9f" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ImplicitDrop_WithoutThrottle_RespectsPercentage" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ReleaseSpacing_SurvivesAnEmptyQueue" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="224aabbc-f545-49ac-f8f9-9a9e3b11bd75">
+      <Execution id="c2e9f5de-2f3a-489a-aefe-5ae3b5a91bca" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ReleaseSpacing_SurvivesAnEmptyQueue" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Jitter_SamplesInclusiveBounds_ClampsDelayAtZero(high: True, expectedMs: 110)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="a9ab86ad-be0b-f3e1-a301-d70c09695aaa">
+      <Execution id="20f41fcd-c835-49ea-ba88-2faa992293ac" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Jitter_SamplesInclusiveBounds_ClampsDelayAtZero" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Release_UsesFrozenJitterDeadlineAndPreservesFifoInBurst" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="8f217759-07d1-37af-6bad-d58351bf8699">
+      <Execution id="59638d78-b811-4ead-8910-8c3dc7a13832" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Release_UsesFrozenJitterDeadlineAndPreservesFifoInBurst" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: -1, expected: 0)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="99a6c872-d87f-3cea-5bbf-c89d4aa58b84">
+      <Execution id="7bebdb56-7a6d-4a95-834d-a7b51c37af96" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="JitterSetting_IsClamped" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: 2001, expected: 2000)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="e449fd7b-120a-6e21-9639-258ff3ce0a85">
+      <Execution id="5e881173-4259-4bce-8568-564549607819" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="JitterSetting_IsClamped" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.FailedThrottleRelease_IsCountedAsDropNotDelivery" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="56456be0-a415-70cf-d5b0-765c2fa1bd31">
+      <Execution id="628b6cae-003e-4fa4-a5e8-9c7462c3b427" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="FailedThrottleRelease_IsCountedAsDropNotDelivery" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ExplicitDrop_TakesPriorityOverThrottle" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="af4f79f0-fbe1-82c8-05dd-45cccd56c512">
+      <Execution id="a064dd90-95b6-4965-8b74-a32676b7555b" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ExplicitDrop_TakesPriorityOverThrottle" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.FailedPassThrough_DoesNotCountAsDelivered" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="6dc3a348-72df-d36d-9a6a-b7466278d353">
+      <Execution id="70992627-7919-42a2-b2c2-1b65e4c43459" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="FailedPassThrough_DoesNotCountAsDelivered" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Active_DefaultDrop100_ThrottleEnabled_QueuesInsteadOfDropping" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="07fcebf3-9e23-be50-f051-d952eac120df">
+      <Execution id="5ed7cde4-d163-4511-88e4-dabf0faf5746" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Active_DefaultDrop100_ThrottleEnabled_QueuesInsteadOfDropping" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineLoopbackTests.CustomEphemeralLoopback_DefaultDrop100_ThrottleJitterAndRestoreDeliver" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="653ec208-8dac-45f6-2c4f-d9aec61cd168">
+      <Execution id="5fae48b2-f5db-49da-9d0a-8710e9c4fc8c" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineLoopbackTests" name="CustomEphemeralLoopback_DefaultDrop100_ThrottleJitterAndRestoreDeliver" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_Extremes_SelectOnlyThrottleOrPass(chance: 100, queues: True)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="ec5e0815-0850-0e90-6396-4274d939ca45">
+      <Execution id="1657aed0-e89f-4539-98fa-c3c0a5e1b78b" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ThrottleChance_Extremes_SelectOnlyThrottleOrPass" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Restore_SerializesWithInFlightEnqueue" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="24368d3f-00ca-cded-ec65-500a1091b5a8">
+      <Execution id="ea2be264-1a7d-4fa5-a64d-09e865792dbe" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Restore_SerializesWithInFlightEnqueue" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing(forceIdle: True)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="90441ef6-ec83-dc3c-756f-057c35f6216f">
+      <Execution id="5da18e9c-be7f-4ead-a26b-f4efa2dfe13b" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Stop_LatePacketCannotOvertakeHeldPackets" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="710610c3-5b6b-520e-78c7-24784c667787">
+      <Execution id="301416a9-4b03-4a04-89d2-5821d1d9e9d5" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Stop_LatePacketCannotOvertakeHeldPackets" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.DisableThrottle_FlushesImmediatelyAndResetsSpacing" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="d6919c4e-782c-363b-6603-e5d7de782f05">
+      <Execution id="9eeb4a33-1016-4f32-8e5c-ed25b33701f0" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="DisableThrottle_FlushesImmediatelyAndResetsSpacing" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing(forceIdle: False)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="b32705e8-e34b-83c2-1310-52d3c487f463">
+      <Execution id="bb154157-95bf-40fd-af34-f552ab17a0ba" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.Jitter_SamplesInclusiveBounds_ClampsDelayAtZero(high: False, expectedMs: 0)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="8489bc60-7f26-eda3-b907-123d28dfbeca">
+      <Execution id="3a1c7fca-5fd9-4e8b-a070-3591086eaa34" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="Jitter_SamplesInclusiveBounds_ClampsDelayAtZero" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_Extremes_SelectOnlyThrottleOrPass(chance: 0, queues: False)" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="e631798d-551a-7bce-a01a-036fafa0e09e">
+      <Execution id="9df0d1f8-ee90-4746-ac8d-ed341c8f02e0" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ThrottleChance_Extremes_SelectOnlyThrottleOrPass" />
+    </UnitTest>
+    <UnitTest name="DarkDesync.Tests.PacketEngineSchedulingTests.ConcurrentReleaseAndFlush_PreserveFifoWithoutDuplicates" storage="c:\users\arthur\desktop\rev-eng\darkdesync.tests\bin\engineverification\darkdesync.tests.dll" id="f7f0f2fc-e853-ecc4-7445-ccef39a93f06">
+      <Execution id="77241219-84ce-4946-8305-de401a9bc8e5" />
+      <TestMethod codeBase="C:\Users\Arthur\Desktop\rev-eng\DarkDesync.Tests\bin\EngineVerification\DarkDesync.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="DarkDesync.Tests.PacketEngineSchedulingTests" name="ConcurrentReleaseAndFlush_PreserveFifoWithoutDuplicates" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="710610c3-5b6b-520e-78c7-24784c667787" executionId="301416a9-4b03-4a04-89d2-5821d1d9e9d5" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d3302730-a816-b439-f5da-7ce16586f4b1" executionId="50d557c8-5c19-49a6-9af2-677e21bd1fe5" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="baf472b5-9854-1609-9103-6f6771114192" executionId="7184b2ae-770d-42f8-8285-6f92fba3a0f3" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="a9ab86ad-be0b-f3e1-a301-d70c09695aaa" executionId="20f41fcd-c835-49ea-ba88-2faa992293ac" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="6dc3a348-72df-d36d-9a6a-b7466278d353" executionId="70992627-7919-42a2-b2c2-1b65e4c43459" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="99a6c872-d87f-3cea-5bbf-c89d4aa58b84" executionId="7bebdb56-7a6d-4a95-834d-a7b51c37af96" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="df48f2f9-7440-217c-b400-3a653a670a38" executionId="0f57f12d-3708-40fc-8715-3e515d8ce3c6" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="07fcebf3-9e23-be50-f051-d952eac120df" executionId="5ed7cde4-d163-4511-88e4-dabf0faf5746" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="90441ef6-ec83-dc3c-756f-057c35f6216f" executionId="5da18e9c-be7f-4ead-a26b-f4efa2dfe13b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e631798d-551a-7bce-a01a-036fafa0e09e" executionId="9df0d1f8-ee90-4746-ac8d-ed341c8f02e0" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="56456be0-a415-70cf-d5b0-765c2fa1bd31" executionId="628b6cae-003e-4fa4-a5e8-9c7462c3b427" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="ec5e0815-0850-0e90-6396-4274d939ca45" executionId="1657aed0-e89f-4539-98fa-c3c0a5e1b78b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d34bcca9-54b5-7698-a4be-5583c1699dbd" executionId="2774bc88-d7cb-4f5a-851a-a19227935c9f" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="24368d3f-00ca-cded-ec65-500a1091b5a8" executionId="ea2be264-1a7d-4fa5-a64d-09e865792dbe" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="653ec208-8dac-45f6-2c4f-d9aec61cd168" executionId="5fae48b2-f5db-49da-9d0a-8710e9c4fc8c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="da28c347-1d2d-cc1b-c957-0ca07fc08604" executionId="9a609730-9d6b-4475-adb9-435554dcc172" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="8489bc60-7f26-eda3-b907-123d28dfbeca" executionId="3a1c7fca-5fd9-4e8b-a070-3591086eaa34" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="b32705e8-e34b-83c2-1310-52d3c487f463" executionId="bb154157-95bf-40fd-af34-f552ab17a0ba" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e5a70d04-549f-395b-de42-863d59ba3035" executionId="dddbc4c3-6b00-4a07-a8cb-ae509a686486" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="8f217759-07d1-37af-6bad-d58351bf8699" executionId="59638d78-b811-4ead-8910-8c3dc7a13832" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f7f0f2fc-e853-ecc4-7445-ccef39a93f06" executionId="77241219-84ce-4946-8305-de401a9bc8e5" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d6919c4e-782c-363b-6603-e5d7de782f05" executionId="9eeb4a33-1016-4f32-8e5c-ed25b33701f0" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="224aabbc-f545-49ac-f8f9-9a9e3b11bd75" executionId="c2e9f5de-2f3a-489a-aefe-5ae3b5a91bca" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="af4f79f0-fbe1-82c8-05dd-45cccd56c512" executionId="a064dd90-95b6-4965-8b74-a32676b7555b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e449fd7b-120a-6e21-9639-258ff3ce0a85" executionId="5e881173-4259-4bce-8568-564549607819" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Resultados que não estão em uma lista" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="Todos os resultados carregados" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="25" executed="25" passed="25" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 8.0.31)&#xD;
+[xUnit.net 00:00:00.26]   Discovering: DarkDesync.Tests&#xD;
+[xUnit.net 00:00:00.32]   Discovered:  DarkDesync.Tests&#xD;
+[xUnit.net 00:00:00.32]   Starting:    DarkDesync.Tests&#xD;
+[xUnit.net 00:00:00.83]   Finished:    DarkDesync.Tests&#xD;
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>
