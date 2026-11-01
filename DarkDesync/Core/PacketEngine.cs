@@ -283,7 +283,10 @@ public sealed class PacketEngine : IDisposable
         {
             _targetProcess?.Dispose();
             _targetProcess = null;
-            ErrorOccurred?.Invoke("Captura bloqueada: exige conexão TCP/IPv4 ou fluxo UDP/IPv4 observado por PID, com tupla completa e socket exclusivo. Se UDP: a observação foi armada; gere um NOVO fluxo na aplicação e tente iniciar novamente. IPv6, portas isoladas e sockets compartilhados não são aceitos.");
+            string observation = _flowTracker.IsHealthy
+                ? "Observação UDP armada; gere um NOVO fluxo na aplicação e tente iniciar novamente."
+                : "Observação UDP indisponível; verifique alvo, driver e permissão de administrador.";
+            ErrorOccurred?.Invoke("Captura bloqueada: exige conexão TCP/IPv4 ou fluxo UDP/IPv4 observado por PID, com tupla completa e socket exclusivo. " + observation + " IPv6, portas isoladas e sockets compartilhados não são aceitos.");
             return false;
         }
 
@@ -303,7 +306,8 @@ public sealed class PacketEngine : IDisposable
         }
 
         var token = _cts.Token;
-        _captureTask = Task.Run(() => CaptureLoop(token));
+        _captureTask = Task.Factory.StartNew(() => CaptureLoop(token), CancellationToken.None,
+            TaskCreationOptions.LongRunning, TaskScheduler.Default);
         _throttleReleaseTask = Task.Run(() => ThrottleReleaseLoop(token));
 
         // Connection scope is immutable for this capture session. New connections

@@ -48,7 +48,9 @@ public sealed class FlowTracker : IDisposable
                 var token = _cts.Token;
                 var handle = _handle;
                 var ledger = _ledger;
-                _worker = Task.Run(() => Monitor(handle, ledger, token));
+                // Native Recv blocks: do not starve cycle timers/async UI work in the thread pool.
+                _worker = Task.Factory.StartNew(() => Monitor(handle, ledger, token), CancellationToken.None,
+                    TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 return true;
             }
             catch (Exception ex)
@@ -70,7 +72,8 @@ public sealed class FlowTracker : IDisposable
         _cts?.Cancel();
         if (_handle != WinDivertNative.InvalidHandle)
             WinDivertNative.WinDivertShutdown(_handle, WinDivertNative.Shutdown.Both);
-        _worker?.GetAwaiter().GetResult();
+        try { _worker?.GetAwaiter().GetResult(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "UDP observer worker failed during shutdown"); }
         if (_handle != WinDivertNative.InvalidHandle) WinDivertNative.WinDivertClose(_handle);
         _handle = WinDivertNative.InvalidHandle;
         _cts?.Dispose(); _cts = null; _worker = null;

@@ -39,6 +39,7 @@ public class WinDivertDropIntegrationTests
                 var worker = (Task)typeof(PacketEngine).GetField(name,
                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(engine)!;
                 Assert.True(worker.IsCompletedSuccessfully, name + ": " + worker.Status);
+                if (name == "_captureTask") Assert.True(worker.CreationOptions.HasFlag(TaskCreationOptions.LongRunning));
             }
         }
         Assert.False(engine.IsRunning);

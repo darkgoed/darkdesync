@@ -38,11 +38,13 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
         engine.BurstLossPercentage = engine.AsymmetricOutboundLossPercentage = 100;
         engine.AsymmetricInboundLossPercentage = 0;
         using var controller = new DesyncController(NullLogger<DesyncController>.Instance, engine.StateMachine, engine);
+        var clock = Stopwatch.StartNew();
         Assert.True(controller.TriggerCycle(mode, 800));
         var receive = client.ReceiveAsync();
         await client.SendAsync(new byte[] { 61 }, 1);
         await WaitUntil(() => engine.PacketsDropped + engine.PacketsThrottled > 0);
-        Assert.False(receive.IsCompleted, "Target reply bypassed the UDP effect");
+        output.WriteLine($"At effect assertion: elapsed={clock.ElapsedMilliseconds}ms, state={controller.CurrentState}, held={engine.PacketsThrottled}, dropped={engine.PacketsDropped}, sent={engine.PacketsPassedThrough}");
+        Assert.False(receive.IsCompleted, $"Target reply bypassed the UDP effect; elapsed={clock.ElapsedMilliseconds}ms, state={controller.CurrentState}");
         long intercepted = engine.PacketsIntercepted;
         Assert.Equal(DesyncStateMachine.State.Active, controller.CurrentState);
         // Another PID owns BOTH ends of this probe. It must not enter the target filter.
