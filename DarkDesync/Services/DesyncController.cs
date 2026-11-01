@@ -135,8 +135,19 @@ public sealed class DesyncController : IDisposable
 
     public void Dispose()
     {
-        lock (_cycleLock) { _disposed = true; CancelCycle(); }
-        try { _activeCycleTask?.GetAwaiter().GetResult(); }
-        finally { _activeCycleCts?.Dispose(); }
+        lock (_cycleLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+        }
+        try { CancelCycle(); }
+        finally
+        {
+            lock (_cycleLock)
+            {
+                _activeCycleCts?.Dispose();
+                _activeCycleCts = null;
+            }
+        }
     }
 }

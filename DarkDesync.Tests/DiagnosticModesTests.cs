@@ -181,4 +181,35 @@ public sealed class DiagnosticModesTests
         Assert.True(hotkey.AcceptKeyTransition(0x20, true));
         Assert.False(hotkey.AcceptKeyTransition(0x75, true)); // F6 is not a separate mode hotkey.
     }
+
+    [Fact]
+    public void DisposeTwiceAndCancelAfterDispose_RestoreWithoutDisposedToken()
+    {
+        using var engine = Engine(); Authorize(engine);
+        var controller = new DesyncController(NullLogger<DesyncController>.Instance, engine.StateMachine, engine);
+        Assert.True(controller.TriggerCycle(DiagnosticMode.OutboundFreeze, 800));
+        Capture(engine);
+        controller.Dispose(); controller.Dispose(); controller.CancelCycle();
+        Assert.False(controller.TriggerCycle(DiagnosticMode.OutboundFreeze, 150));
+        Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState);
+        Assert.Equal(1, engine.PacketsPassedThrough);
+    }
+
+    [Fact]
+    public async Task LostTargetWhileCapturing_StopsAndReportsWithoutDroppingPacket()
+    {
+        using var engine = Engine(); Authorize(engine);
+        var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.ErrorOccurred += reason => stopped.TrySetResult(reason);
+        engine.ActiveDiagnosticMode = DiagnosticMode.BurstLoss;
+        engine.BurstLossPercentage = 100; engine.StateMachine.TryActivate();
+        typeof(PacketEngine).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(engine, true);
+        engine.TargetAliveOverride = () => false;
+        Capture(engine);
+        Assert.Contains("processo-alvo", await stopped.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.False(engine.IsRunning);
+        Assert.Equal(1, engine.PacketsPassedThrough);
+        Assert.Equal(0, engine.PacketsDropped);
+        Assert.Equal(DesyncStateMachine.State.Idle, engine.StateMachine.Current);
+    }
 }

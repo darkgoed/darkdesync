@@ -120,7 +120,10 @@ public sealed class HotkeyService : IDisposable
                 bool up = wParam == (IntPtr)0x0101 || wParam == (IntPtr)0x0105;
                 if ((down || up) && AcceptKeyTransition(vkCode, down) &&
                     (_targetWindowHandle == IntPtr.Zero || IsTargetForeground()))
-                    HotkeyPressed?.Invoke();
+                {
+                    try { HotkeyPressed?.Invoke(); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Hotkey subscriber failed; key remains pass-through"); }
+                }
             }
         }
 

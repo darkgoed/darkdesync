@@ -99,6 +99,8 @@ public sealed class PacketEngine : IDisposable
 
     private readonly ConcurrentQueue<ThrottledPacket> _throttleQueue = new();
     private readonly object _handleLock = new();
+    private readonly object _lifecycleLock = new();
+    private int _safetyStopRequested;
     // Always acquire packet lock before handle lock: enqueue, release and flush are atomic.
     private readonly object _packetLock = new();
     private long _nextReleaseTicks;
@@ -241,13 +243,17 @@ public sealed class PacketEngine : IDisposable
         int dropPercentage = 100,
         string? customFilter = null)
     {
+        lock (_lifecycleLock) return StartCore(mode, processId, dropPercentage, customFilter);
+    }
+
+    private bool StartCore(FilterMode mode, uint processId, int dropPercentage, string? customFilter)
+    {
         if (_isRunning)
         {
-            _logger.LogInformation("PacketEngine is already running. Updating filter...");
-            UpdateFilter(mode, processId, customFilter);
-            return true;
+            return false;
         }
 
+        Interlocked.Exchange(ref _safetyStopRequested, 0);
         _filterMode = mode;
         _targetProcessId = processId;
         _dropPercentage = Math.Clamp(dropPercentage, 0, 100);
@@ -264,12 +270,16 @@ public sealed class PacketEngine : IDisposable
 
         if (_currentFilter == "false")
         {
+            _targetProcess?.Dispose();
+            _targetProcess = null;
             ErrorOccurred?.Invoke("Captura bloqueada: selecione um processo com conexão TCP/IPv4 estabelecida e exclusiva. UDP, IPv6 e portas isoladas não identificam o alvo com segurança nesta versão.");
             return false;
         }
 
         if (!OpenNetworkHandle(_currentFilter))
         {
+            _targetProcess?.Dispose();
+            _targetProcess = null;
             return false;
         }
 
@@ -334,6 +344,11 @@ public sealed class PacketEngine : IDisposable
     }
 
     public void Stop()
+    {
+        lock (_lifecycleLock) StopCore();
+    }
+
+    private void StopCore()
     {
         if (!_isRunning)
             return;
@@ -475,15 +490,7 @@ public sealed class PacketEngine : IDisposable
                     if (ct.IsCancellationRequested || !_isRunning)
                         break;
 
-                    int err = Marshal.GetLastWin32Error();
-                    if (err == 995 || err == 6)
-                    {
-                        Thread.Sleep(10);
-                        continue;
-                    }
-
-                    Thread.Sleep(1);
-                    continue;
+                    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "WinDivertRecv failed");
                 }
 
                 bool affected = ProcessCapturedPacket(packetBuffer, recvLen, addr, random);
@@ -499,6 +506,7 @@ public sealed class PacketEngine : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Capture loop exception");
+            RequestSafetyStop($"Captura interrompida e tráfego restaurado: {ex.Message}");
         }
         finally
         {
@@ -683,17 +691,36 @@ public sealed class PacketEngine : IDisposable
             return false;
         try
         {
-            if (!(TargetAliveOverride?.Invoke() ?? (_targetProcess != null && !_targetProcess.HasExited))) return false;
+            if (!(TargetAliveOverride?.Invoke() ?? (_targetProcess != null && !_targetProcess.HasExited)))
+            {
+                RequestSafetyStop("Captura parada: processo-alvo encerrado ou identidade indisponível.");
+                return false;
+            }
             var localIp = addr.Outbound ? srcIp : dstIp;
             var remoteIp = addr.Outbound ? dstIp : srcIp;
             ushort localPort = addr.Outbound ? srcPort : dstPort;
             ushort remotePort = addr.Outbound ? dstPort : srcPort;
             // Revalidate the full tuple, not either port or an arbitrary loopback packet.
-            return ReadEndpoints().Any(e => e.Protocol == 6 && e.LocalPort == localPort &&
+            var owned = ReadEndpoints();
+            if (!owned.Any(e => e.Protocol == 6 && e.RemotePort != 0))
+                RequestSafetyStop("Captura parada: nenhuma conexão TCP/IPv4 do alvo pôde ser confirmada.");
+            return owned.Any(e => e.Protocol == 6 && e.LocalPort == localPort &&
                 e.RemotePort == remotePort && new System.Net.IPAddress(e.LocalAddr).Equals(localIp) &&
                 new System.Net.IPAddress(e.RemoteAddr).Equals(remoteIp));
         }
-        catch { return false; }
+        catch
+        {
+            RequestSafetyStop("Captura parada: falha ao confirmar propriedade do tráfego do alvo.");
+            return false;
+        }
+    }
+
+    private void RequestSafetyStop(string reason)
+    {
+        if (!_isRunning || Interlocked.Exchange(ref _safetyStopRequested, 1) != 0) return;
+        _stopping = true;
+        // Never join the capture worker from itself. Serialize against UI stop/start.
+        _ = Task.Run(() => { Stop(); ErrorOccurred?.Invoke(reason); });
     }
 
     private static bool TryExtractIpAndPorts(
