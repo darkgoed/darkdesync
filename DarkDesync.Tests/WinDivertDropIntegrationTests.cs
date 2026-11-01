@@ -17,6 +17,10 @@ public sealed class DriverTheoryAttribute : TheoryAttribute
     }
 }
 
+[CollectionDefinition("WinDivert controlled driver", DisableParallelization = true)]
+public sealed class WinDivertDriverCollection { }
+
+[Collection("WinDivert controlled driver")]
 public class WinDivertDropIntegrationTests
 {
     [DriverTheory]
@@ -33,8 +37,9 @@ public class WinDivertDropIntegrationTests
         for (int i = 0; i < repetitions; i++)
         {
             Assert.True(engine.Start(FilterMode.Custom, (uint)Environment.ProcessId, customFilter: "loopback"));
-            var workers = new[] { "_captureTask", "_throttleReleaseTask" }.ToDictionary(name => name, name =>
-                (Task)typeof(PacketEngine).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(engine)!);
+            var snapshot = engine.WorkerSnapshot; // Serialized against automatic handle turnover.
+            Assert.NotNull(snapshot.Capture); Assert.NotNull(snapshot.Release);
+            var workers = new Dictionary<string, Task> { ["_captureTask"] = snapshot.Capture, ["_throttleReleaseTask"] = snapshot.Release };
             engine.Stop();
             foreach (var name in new[] { "_captureTask", "_throttleReleaseTask" })
             {

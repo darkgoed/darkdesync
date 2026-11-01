@@ -11,6 +11,7 @@ using Xunit.Abstractions;
 namespace DarkDesync.Tests;
 
 // Real driver tests: selected target is a test-only child PID, never Roblox/game traffic.
+[Collection("WinDivert controlled driver")]
 public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
 {
     [DriverTheory]
@@ -93,7 +94,7 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
             (ushort)((IPEndPoint)client.Client.LocalEndPoint!).Port, 0x0100007f, 0x0100007f);
         var scanner = new ProcessNetworkScanner(NullLogger<ProcessNetworkScanner>.Instance);
         Assert.False(scanner.IsExclusiveUdpBinding(peer.Pid, flow));
-        await WaitUntil(() => engine.ScopeStatus.UdpScoped == 0 && !engine.IsRunning);
+        await WaitUntil(() => engine.ScopeStatus.UdpScoped == 0 && !engine.IsRunning && engine.ScopeStatus.UdpObserved > 0);
         Assert.Equal("false", engine.CurrentFilter); Assert.False(engine.IsRunning);
         Assert.True(engine.ScopeStatus.UdpObserved > 0); // Refusal must not erase observation.
         engine.Stop(); Assert.True(engine.IsObservingUdp);

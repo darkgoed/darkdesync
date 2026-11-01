@@ -55,6 +55,10 @@ public sealed class PacketEngine : IDisposable
     private string? _lastCaptureError;
     public CaptureScopeStatus ScopeStatus => Volatile.Read(ref _scopeStatus);
     public bool IsCaptureRequested => _captureRequested;
+    internal (Task? Capture, Task? Release) WorkerSnapshot
+    {
+        get { lock (_lifecycleLock) return (_captureTask, _throttleReleaseTask); }
+    }
 
 
     private uint _targetProcessId;
@@ -320,6 +324,7 @@ public sealed class PacketEngine : IDisposable
         bool same = pid != 0 && pid == _targetProcessId && TargetAlive();
         if (!same)
         {
+            _lastCaptureError = null;
             StopCore();
             _flowTracker.Stop();
             _targetProcess?.Dispose(); _targetProcess = null;
