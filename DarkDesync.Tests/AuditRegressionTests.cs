@@ -124,6 +124,7 @@ public sealed class AuditRegressionTests
         {
             Set(engine, "_filterMode", FilterMode.Outbound);
             Set(engine, "_legacyPulseActive", false);
+            engine.CycleDropEnabled = false;
             engine.IsThrottleActive = true;
         }
         for (int id = 0; id < 513; id++) Capture(engine, id);
@@ -214,5 +215,24 @@ public sealed class AuditRegressionTests
         Assert.Equal(3, engine.PacketsPassedThrough);
         Assert.Equal(0, engine.PacketsDropped);
         Assert.Empty(Queue(engine));
+    }
+
+    [Fact]
+    public async Task StrictReinjectionFailure_StopsInsteadOfReportingWorkingCapture()
+    {
+        using var engine = DiagnosticModesTests.Engine();
+        DiagnosticModesTests.Authorize(engine);
+        Set(engine, "_isRunning", true);
+        engine.ActiveDiagnosticMode = DiagnosticMode.PacketDrop;
+        engine.SetDropPercentage(0);
+        engine.StateMachine.TryActivate();
+        engine.SendOverride = (_, _, _) => false;
+        var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.ErrorOccurred += reason => stopped.TrySetResult(reason);
+        DiagnosticModesTests.Capture(engine);
+        Assert.Contains("Reinjeção", await stopped.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.False(engine.IsRunning);
+        Assert.Equal(1, engine.PacketsDropped);
+        Assert.Equal(0, engine.PacketsPassedThrough);
     }
 }

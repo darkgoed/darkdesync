@@ -20,15 +20,19 @@ public class ThrottleTests
     }
 
     [Fact]
-    public void FreezeQueue_IsBounded_AndRestoreDeliversOnce()
+    public async Task FreezeQueue_IsBounded_AndSafetyStopDeliversOnce()
     {
         using var engine = DiagnosticModesTests.Engine(); DiagnosticModesTests.Authorize(engine);
+        typeof(PacketEngine).GetField("_isRunning", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(engine, true); // Model a live strict capture epoch; sender is overridden.
+        var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.ErrorOccurred += reason => stopped.TrySetResult(reason);
         engine.ActiveDiagnosticMode = DiagnosticMode.OutboundFreeze;
         engine.StateMachine.TryActivate();
         for (int i = 0; i < 520; i++) DiagnosticModesTests.Capture(engine);
+        Assert.Contains("limite", await stopped.Task.WaitAsync(TimeSpan.FromSeconds(3)));
         Assert.Equal(512, engine.PacketsThrottled);
-        Assert.Equal(8, engine.PacketsPassedThrough);
-        engine.StateMachine.TryBeginRestore();
+        Assert.False(engine.IsRunning);
         engine.FlushThrottleQueue();
         engine.FlushThrottleQueue();
         Assert.Equal(520, engine.PacketsPassedThrough);

@@ -74,7 +74,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 // Global legacy defaults to clumsy-style timed lag, never implicit 100% packet loss.
                 // Preserve an effect the user deliberately selected.
-                if (_selectedDiagnosticModeText == "Drop (%)")
+                if (IsLegacyGlobalSelected && _selectedDiagnosticModeText == "Desativado")
                     SelectedDiagnosticModeText = "Atraso (ms)";
                 OnPropertyChanged(nameof(IsLegacyGlobalSelected));
                 OnPropertyChanged(nameof(IsStrictCaptureMode));
