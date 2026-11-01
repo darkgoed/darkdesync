@@ -10,6 +10,10 @@ on:
         description: Run administrator WinDivert tests (isolated loopback only)
         type: boolean
         default: false
+      legacy_global_tests:
+        description: 'CONSENT: GLOBAL outbound pulses affect ALL traffic on this isolated runner (never a shared host)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -55,6 +59,7 @@ jobs:
     timeout-minutes: 10
     env:
       DARKDESYNC_DRIVER_TESTS: '1'
+      DARKDESYNC_GLOBAL_TESTS: ${{ inputs.legacy_global_tests && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -62,7 +67,7 @@ jobs:
           dotnet-version: 8.0.x
       - name: Build test-only UDP child process (no second application)
         run: dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --nologo
-      - name: Explicit driver tests, own TCP and UDP loopback sockets only
+      - name: Explicit driver tests (GLOBAL cases require separate consent; generated traffic is local)
         run: dotnet test DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --filter "Category=Driver" --logger "trx;LogFileName=driver.trx" --results-directory artifacts/driver
       - uses: actions/upload-artifact@v4
         if: always()
