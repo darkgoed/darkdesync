@@ -37,7 +37,7 @@
       <TextBlock Text="Filtro de rede" FontWeight="SemiBold" Margin="0,0,0,8" /><ComboBox ItemsSource="{Binding FilterModeOptions}" SelectedItem="{Binding SelectedFilterModeText}" FontSize="11" ToolTip="{Binding SelectedFilterModeText}" />
       <StackPanel Visibility="{Binding IsLegacyGlobalSelected, Converter={StaticResource BoolVisibility}}" Margin="0,12,0,0">
        <TextBlock x:Name="GlobalLegacyWarning" Text="GLOBAL: modo Outbound legado captura TODAS as conexões de saída do Windows, não apenas o jogo. Selecione o efeito e pressione START para manter ativo; pressione STOP para encerrar. Nenhum resultado no Roblox real foi comprovado." TextWrapping="Wrap" Foreground="#FB7185" FontWeight="SemiBold" />
-       <TextBlock Text="O modo GLOBAL inicia no efeito Atraso (ms), padrão 150 ms. START mantém ativo até STOP. CUIDADO: selecionar Desativado usa a perda legada, que pode estar em 100% (descarte total). Freeze retém até STOP." Style="{StaticResource HelpText}" />
+       <TextBlock Text="O modo GLOBAL inicia em Atraso (ms), padrão 150 ms. START mantém ativo até STOP. Desativado não aplica efeito GLOBAL. Drop (%) descarta explicitamente a porcentagem escolhida. Freeze retém até STOP ou parada de segurança." Style="{StaticResource HelpText}" />
       </StackPanel>
       <TextBox Text="{Binding CustomFilterText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsCustomFilterVisible, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0" ToolTip="Restrição adicional WinDivert; nunca amplia o alvo" />
       <TextBlock Text="UDP novo verificado entra automaticamente no escopo. Troca segura de NETWORK libera a fila e deixa tráfego passar sem efeito no intervalo; não há handles sobrepostos. Parar/reiniciar preserva a observação do mesmo PID. Para perda assimétrica, selecione entrada + saída." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
@@ -48,7 +48,7 @@
       <TextBlock Text="02 / PERFIL DO CICLO" Style="{StaticResource SectionLabel}" />
       <CheckBox Content="Ativar perfil do ciclo" IsChecked="{Binding CycleProfileEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
       <TextBlock Text="Efeito do perfil" FontWeight="SemiBold" Margin="0,0,0,8" />
-      <ComboBox ItemsSource="{Binding DiagnosticModeOptions}" SelectedItem="{Binding SelectedDiagnosticModeText}" Margin="0,0,0,12" ToolTip="Desativado mantém a perda legada do perfil" />
+      <ComboBox ItemsSource="{Binding DiagnosticModeOptions}" SelectedItem="{Binding SelectedDiagnosticModeText}" Margin="0,0,0,12" ToolTip="GLOBAL: Desativado não aplica efeito; Drop (%) é descarte explícito. No estrito, Desativado conserva o perfil legado." />
       <StackPanel Visibility="{Binding IsLegacyModeSelected, Converter={StaticResource BoolVisibility}}">
        <UniformGrid Columns="3" Margin="0,0,0,18">
         <Button Content="Fraco · 800 ms" Command="{Binding SelectProfileCommand}" CommandParameter="{Binding Profiles[0]}" Style="{StaticResource OutlineButton}" Padding="5,10" Margin="0,0,4,0" />
@@ -72,10 +72,10 @@
       <StackPanel Visibility="{Binding IsGlobalDelayVisible, Converter={StaticResource BoolVisibility}}">
        <Grid><TextBlock Text="Atraso por pacote · ms" /><TextBox Text="{Binding GlobalDelayMs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
        <Slider Minimum="0" Maximum="3000" Value="{Binding GlobalDelayMs, Mode=TwoWay}" SmallChange="10" LargeChange="100" Margin="0,6,0,8" />
-       <TextBlock Text="Define a retenção de cada pacote novo, não a duração do START. 0 ms = sem atraso; ajuste enquanto estiver ativo. Pacotes anteriores preservam o prazo original. Atraso real pode variar com a carga do Windows." Style="{StaticResource HelpText}" />
+       <TextBlock Text="Define a retenção por pacote, não a duração do START. Ajuste ao vivo: a fila pendente usa o novo prazo contado desde a captura, preservando a ordem. 0 ms libera a fila. Atraso real pode variar com a carga do Windows." Style="{StaticResource HelpText}" />
       </StackPanel>
       <StackPanel Visibility="{Binding IsGlobalDropVisible, Converter={StaticResource BoolVisibility}}">
-       <Grid><TextBlock Text="Perda contínua GLOBAL · %" /><TextBox Text="{Binding DropPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
+       <Grid><TextBlock Text="Drop explícito · %" /><TextBox Text="{Binding DropPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
        <Slider Minimum="0" Maximum="100" Value="{Binding DropPercentage, Mode=TwoWay}" Margin="0,6,0,0" />
       </StackPanel>
       <StackPanel Visibility="{Binding IsAsymmetricLossVisible, Converter={StaticResource BoolVisibility}}">

@@ -28,7 +28,7 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
 {
     [GlobalDriverTheory]
     [Trait("Category", "Driver")]
-    [InlineData(DiagnosticMode.None)]
+    [InlineData(DiagnosticMode.PacketDrop)]
     [InlineData(DiagnosticMode.OutboundFreeze)]
     public async Task ExplicitGlobal150ms_CapturesUnmappedUdp_StrictRefuses_OutsidePulseUnaffected(DiagnosticMode mode)
     {
@@ -57,7 +57,7 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
         Assert.False(engine.IsObservingUdp); Assert.Equal(0, engine.ObservedUdpFlowCount);
         var receive = receiver.ReceiveAsync();
         await sender.SendAsync(new byte[] { 12 }, 1);
-        await Until(() => mode == DiagnosticMode.None ? engine.UdpPacketsDropped > 0 : engine.UdpPacketsHeld > 0);
+        await Until(() => mode == DiagnosticMode.PacketDrop ? engine.UdpPacketsDropped > 0 : engine.UdpPacketsHeld > 0);
         Assert.False(receive.IsCompleted, "UDP was neither dropped nor held inside the consented pulse");
         var record = await finished.Task.WaitAsync(TimeSpan.FromSeconds(3));
         await Until(() => !engine.IsRunning && engine.CurrentFilter == "false");
@@ -167,7 +167,7 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
 
     [GlobalDriverTheory]
     [Trait("Category", "Driver")]
-    [InlineData(DiagnosticMode.None)]
+    [InlineData(DiagnosticMode.PacketDrop)]
     [InlineData(DiagnosticMode.OutboundFreeze)]
     [InlineData(DiagnosticMode.BurstLoss)]
     public async Task GlobalStartStop_RunsBeyond800ms_AndStopReleasesTraffic(DiagnosticMode mode)
@@ -215,6 +215,78 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
             engine.Stop();
         }
         output.WriteLine($"GLOBAL {mode}: active after 1050ms, STOP restored normal traffic");
+    }
+
+    [GlobalDriverTheory]
+    [Trait("Category", "Driver")]
+    [InlineData(50)]
+    [InlineData(0)]
+    public async Task LiveSliderReductionAndStop_PreserveRealUdpOrder(int newDelay)
+    {
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        using var sender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
+        using var engine = DiagnosticModesTests.Engine();
+        engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
+        engine.GlobalDelayMs = 3000;
+        engine.ThrottleReleaseDelayMs = 200; // Must not add a second, unintended Lag mechanism.
+        Assert.True(engine.BeginLegacyGlobalContinuous(DiagnosticMode.LatencyDelay));
+        try
+        {
+            for (byte id = 0; id < 8; id++) await sender.SendAsync(new[] { id }, 1);
+            await Until(() => engine.UdpPacketsHeld >= 8);
+            var clock = Stopwatch.StartNew();
+            engine.GlobalDelayMs = newDelay;
+            for (byte id = 0; id < 8; id++)
+                Assert.Equal(new[] { id }, (await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1))).Buffer);
+            Assert.True(clock.ElapsedMilliseconds < 1000, "Old 3000ms deadline or throttle spacing still blocked Lag");
+            Assert.True(engine.IsRunning);
+            engine.GlobalDelayMs = 3000;
+            for (byte id = 8; id < 16; id++) await sender.SendAsync(new[] { id }, 1);
+            await Until(() => engine.UdpPacketsHeld >= 16);
+            engine.Stop();
+            for (byte id = 8; id < 16; id++)
+                Assert.Equal(new[] { id }, (await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1))).Buffer);
+            Assert.Equal("false", engine.CurrentFilter);
+            long captured = engine.PacketsIntercepted;
+            await sender.SendAsync(new byte[] { 99 }, 1);
+            Assert.Equal(new byte[] { 99 }, (await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1))).Buffer);
+            Assert.Equal(captured, engine.PacketsIntercepted);
+            Assert.Equal(0, engine.PacketsDropped);
+            output.WriteLine($"Real outbound UDP order 0..15 preserved; live 3000->{newDelay}ms completed in {clock.ElapsedMilliseconds}ms; STOP drained and closed.");
+        }
+        finally { engine.Stop(); }
+    }
+
+    [GlobalDriverTheory]
+    [Trait("Category", "Driver")]
+    [InlineData(DiagnosticMode.None)]
+    public async Task DisabledGlobal_DoesNotInheritDropOrThrottle_AndModeChangeCloses(DiagnosticMode mode)
+    {
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        using var sender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
+        using var engine = DiagnosticModesTests.Engine();
+        engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
+        engine.SetDropPercentage(100);
+        engine.CycleDropEnabled = engine.IsDropActive = engine.IsThrottleActive = true;
+        engine.ThrottleEnabled = engine.ThrottleContinuous = true;
+        Assert.True(engine.BeginLegacyGlobalContinuous(mode));
+        try
+        {
+            await sender.SendAsync(new byte[] { 71 }, 1);
+            Assert.Equal(new byte[] { 71 }, (await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1))).Buffer);
+            Assert.True(engine.PacketsIntercepted > 0);
+            Assert.Equal(0, engine.PacketsDropped); Assert.Equal(0, engine.PacketsThrottled);
+            engine.UpdateFilter(FilterMode.Outbound);
+            Assert.False(engine.IsRunning); Assert.False(engine.IsCaptureRequested);
+            Assert.False(engine.IsDropActive); Assert.False(engine.IsThrottleActive);
+            long captured = engine.PacketsIntercepted;
+            await sender.SendAsync(new byte[] { 72 }, 1);
+            Assert.Equal(new byte[] { 72 }, (await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1))).Buffer);
+            Assert.Equal(captured, engine.PacketsIntercepted);
+        }
+        finally { engine.Stop(); }
     }
 
     private static async Task Until(Func<bool> ready)

@@ -157,7 +157,7 @@ public sealed class LegacyGlobalCompatibilityTests
         var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         engine.ErrorOccurred += e => stopped.TrySetResult(e);
         DiagnosticModesTests.Capture(engine, protocol: 17);
-        Assert.Contains("reinjeção", await stopped.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Contains("Reinjeção", await stopped.Task.WaitAsync(TimeSpan.FromSeconds(3)));
         Assert.False(engine.IsLegacyGlobalPulse); Assert.Equal("false", engine.CurrentFilter);
         Assert.Equal(1, engine.PacketsDropped); Assert.Equal(0, engine.PacketsPassedThrough);
     }

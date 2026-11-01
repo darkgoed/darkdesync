@@ -18,5 +18,6 @@ public enum DiagnosticMode
     AsymmetricLoss = 3,
 
     /// <summary>4. Holds outgoing packets for a configurable time per packet, while START is active.</summary>
-    LatencyDelay = 4
+    LatencyDelay = 4,
+    PacketDrop = 5
 }

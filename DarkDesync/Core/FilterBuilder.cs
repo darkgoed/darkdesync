@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DarkDesync.Core;
 
-// Strict modes intersect verified PID tuples. Global legacy is a separate, consented pulse-only entry.
+// Strict modes intersect verified PID tuples. Global uses a separate explicit START/STOP entry.
 public enum FilterMode { Outbound, AllTraffic, ProcessPorts, Custom, LegacyGlobalOutbound }
 
 public sealed class FilterBuilder
