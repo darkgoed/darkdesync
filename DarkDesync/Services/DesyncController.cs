@@ -32,12 +32,18 @@ public sealed class DesyncController : IDisposable
         _stateMachine.StateChanged += (_, state) => StateChanged?.Invoke(state);
     }
 
-    public bool TriggerCycle(DiagnosticMode mode = DiagnosticMode.None, int? durationMs = null)
+    public bool TriggerCycle(DiagnosticMode mode = DiagnosticMode.None, int? durationMs = null,
+        bool legacyGlobal = false, bool globalConsent = false)
     {
         lock (_cycleLock)
         {
             if (_disposed || !Enum.IsDefined(mode) || CurrentState != DesyncStateMachine.State.Idle ||
                 _activeCycleTask is { IsCompleted: false }) return false;
+            if (legacyGlobal && (!globalConsent || _packetEngine == null))
+            {
+                LogMessage?.Invoke("[GLOBAL BLOQUEADO] Consentimento explícito obrigatório; nenhum handle aberto.");
+                return false;
+            }
             var profile = new IntensityProfile
             {
                 Name = mode switch
@@ -47,19 +53,43 @@ public sealed class DesyncController : IDisposable
                     DiagnosticMode.AsymmetricLoss => "Asymmetric Loss",
                     _ => ActiveProfile.Name
                 },
-                DurationMs = mode == DiagnosticMode.None ? ActiveProfile.DurationMs : Math.Clamp(durationMs ?? 150, 0, 800),
+                DurationMs = mode == DiagnosticMode.None && !legacyGlobal ? ActiveProfile.DurationMs : Math.Clamp(durationMs ?? 150, 0, 800),
                 DropPercentage = ActiveProfile.DropPercentage
             };
             if (profile.DurationMs <= 0) return false;
             if (_packetEngine != null) _packetEngine.ActiveDiagnosticMode = mode;
             if (!_stateMachine.TryActivate()) return false;
+            if (legacyGlobal)
+            {
+                try
+                {
+                    _packetEngine!.SetDropPercentage(profile.DropPercentage);
+                    if (!_packetEngine.BeginLegacyGlobalPulse(profile.DurationMs, globalConsent))
+                    { RestoreTraffic(); return false; }
+                }
+                catch (Exception ex)
+                {
+                    RestoreTraffic();
+                    LogMessage?.Invoke("[GLOBAL ERRO] Tráfego restaurado: " + ex.Message);
+                    return false;
+                }
+            }
             _activeCycleCts?.Dispose();
             _activeCycleCts = new CancellationTokenSource();
             var ct = _activeCycleCts.Token;
             var target = TargetProcess;
-            LogMessage?.Invoke($"[START] Ciclo {profile.Name} ({profile.DurationMs} ms)");
-            // Restoration must execute even if cancelled before scheduling.
-            _activeCycleTask = Task.Run(() => ExecuteCycleAsync(profile, target, ct));
+            try
+            {
+                LogMessage?.Invoke($"[START] {(legacyGlobal ? "GLOBAL todos os aplicativos" : "PID estrito")} • {profile.Name} • duração solicitada {profile.DurationMs} ms");
+                // Restoration must execute even if cancelled before scheduling.
+                _activeCycleTask = Task.Run(() => ExecuteCycleAsync(profile, target, ct, legacyGlobal));
+            }
+            catch
+            {
+                _activeCycleCts.Cancel();
+                RestoreTraffic();
+                return false;
+            }
             return true;
         }
     }
@@ -88,11 +118,12 @@ public sealed class DesyncController : IDisposable
         {
             _packetEngine.ActiveDiagnosticMode = DiagnosticMode.None;
             _packetEngine.FlushThrottleQueue();
+            _packetEngine.EndLegacyGlobalPulse(); // Close global handle on success, cancel and every exception.
         }
         _stateMachine.ForceIdle();
     }
 
-    private async Task ExecuteCycleAsync(IntensityProfile profile, ProcessInfo? target, CancellationToken ct)
+    private async Task ExecuteCycleAsync(IntensityProfile profile, ProcessInfo? target, CancellationToken ct, bool legacyGlobal)
     {
         var start = DateTime.Now;
         long packets = _packetEngine?.PacketsIntercepted ?? 0;
@@ -128,8 +159,9 @@ public sealed class DesyncController : IDisposable
                 DurationMs = (int)clock.ElapsedMilliseconds, DropPercentage = profile.DropPercentage,
                 PacketsDropped = (_packetEngine?.PacketsDropped ?? 0) - dropped,
                 PacketsTotal = (_packetEngine?.PacketsIntercepted ?? 0) - packets,
-                TargetProcess = target?.ProcessName ?? "Nenhum", CompletedNormally = completed
+                TargetProcess = legacyGlobal ? "GLOBAL — todos os aplicativos" : target?.ProcessName ?? "Nenhum", CompletedNormally = completed
             });
+            LogMessage?.Invoke($"[FIM] {(legacyGlobal ? "GLOBAL" : "PID estrito")} • duração medida {clock.ElapsedMilliseconds} ms • captura iniciada não comprova canal de jogo/efeito no Roblox.");
         }
     }
 

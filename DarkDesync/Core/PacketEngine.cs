@@ -53,6 +53,12 @@ public sealed class PacketEngine : IDisposable
     private volatile bool _disposed;
     private CaptureScopeStatus _scopeStatus = CaptureScopeStatus.Empty;
     private string? _lastCaptureError;
+    private volatile bool _legacyPulseActive;
+    private long _legacyDeadlineTicks;
+    private Timer? _legacyPulseTimer;
+    private int _legacyGeneration;
+    public bool IsLegacyGlobalPulse => _legacyPulseActive;
+    private bool WithinLegacyDeadline => Stopwatch.GetTimestamp() < Interlocked.Read(ref _legacyDeadlineTicks);
     public CaptureScopeStatus ScopeStatus => Volatile.Read(ref _scopeStatus);
     public bool IsCaptureRequested => _captureRequested;
     internal (Task? Capture, Task? Release) WorkerSnapshot
@@ -281,6 +287,11 @@ public sealed class PacketEngine : IDisposable
 
     private bool StartCore(FilterMode mode, uint processId, int dropPercentage, string? customFilter)
     {
+        if (mode == FilterMode.LegacyGlobalOutbound || _filterMode == FilterMode.LegacyGlobalOutbound)
+        {
+            ErrorOccurred?.Invoke("Captura GLOBAL bloqueada: use somente pulso limitado com consentimento explícito; captura contínua não permitida.");
+            return false;
+        }
         if (_disposed || _isRunning) return false;
         ObserveTargetCore(processId);
         if (_targetProcessId == 0)
@@ -390,6 +401,7 @@ public sealed class PacketEngine : IDisposable
         lock (_lifecycleLock)
         {
             if (_disposed) return;
+            if (_legacyPulseActive && mode != FilterMode.LegacyGlobalOutbound) StopCore();
             ObserveTargetCore(processId);
             _filterMode = mode;
             _customFilter = customFilter ?? "outbound";
@@ -403,6 +415,12 @@ public sealed class PacketEngine : IDisposable
     // Single serialized control plane: callbacks never acquire this lock or join workers.
     private void ReconcileScope()
     {
+        if (_filterMode == FilterMode.LegacyGlobalOutbound)
+        {
+            if (!_legacyPulseActive && (_isRunning || _captureRequested)) StopCore();
+            PublishGlobalStatus();
+            return; // Never derive global authorization from PID/port discovery.
+        }
         if (_targetProcessId == 0) { PublishEmpty(); return; }
         if (!TargetAlive())
         {
@@ -431,6 +449,7 @@ public sealed class PacketEngine : IDisposable
                 eligibleUdp.Length == 0 ? "UDP observado, mas socket ausente, compartilhado ou propriedade ambígua: UDP recusado." :
                 "Tuplas UDP verificadas; descobertas e revogações atualizam NETWORK automaticamente.";
             if (tcp.Length > 0 && _scopedConnections.All(e => e.Protocol != 17)) reason = "Somente TCP no escopo (HTTPS/controle não comprova canal da sessão). " + reason;
+            if (_scopedConnections.All(e => e.Protocol != 17)) reason = "NENHUM UDP INCLUÍDO. " + reason;
             if (eligible.Length > 64) reason = "Limite de 64 tuplas excedido: captura bloqueada, sem truncar/ampliar.";
             if (_filterMode == FilterMode.Custom) reason += " Restrição personalizada adicional pode excluir protocolos/tuplas; confira contadores.";
             if (_lastCaptureError != null) reason = _lastCaptureError + " " + reason;
@@ -448,6 +467,58 @@ public sealed class PacketEngine : IDisposable
                 Reason = _lastCaptureError, Filter = "false", Tuples = "" });
         }
     }
+
+    public bool BeginLegacyGlobalPulse(int durationMs, bool consent)
+    {
+        lock (_lifecycleLock)
+        {
+            int duration = Math.Clamp(durationMs, 0, 800);
+            if (_disposed || !consent || duration == 0 || _legacyPulseActive ||
+                _filterMode != FilterMode.LegacyGlobalOutbound || _stateMachine.Current != DesyncStateMachine.State.Active)
+                return false;
+            int generation = ++_legacyGeneration;
+            Interlocked.Exchange(ref _legacyDeadlineTicks, long.MinValue); // Pass-through while the driver opens.
+            _legacyPulseActive = true;
+            _captureRequested = true;
+            try
+            {
+                ReplaceNetworkScope("outbound", []); // EXACT old filter, only this explicit consented path.
+                if (!_isRunning) { StopCore(); PublishGlobalStatus(); return false; }
+                _legacyPulseTimer = new Timer(_ =>
+                {
+                    lock (_lifecycleLock)
+                    {
+                        if (_disposed || !_legacyPulseActive || generation != _legacyGeneration) return;
+                        StopCore(); PublishGlobalStatus();
+                    }
+                }, null, Timeout.Infinite, Timeout.Infinite);
+                Interlocked.Exchange(ref _legacyDeadlineTicks, Stopwatch.GetTimestamp() + duration * Stopwatch.Frequency / 1000);
+                _legacyPulseTimer.Change(duration, Timeout.Infinite);
+                PublishGlobalStatus();
+                return true;
+            }
+            catch
+            {
+                StopCore(); PublishGlobalStatus();
+                throw;
+            }
+        }
+    }
+
+
+    public void EndLegacyGlobalPulse()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_legacyPulseActive) StopCore();
+            if (_filterMode == FilterMode.LegacyGlobalOutbound) PublishGlobalStatus();
+        }
+    }
+
+    private void PublishGlobalStatus() => Volatile.Write(ref _scopeStatus,
+        new CaptureScopeStatus(0, false, _legacyPulseActive, _isRunning, 0, 0, 0, 0, 0, 0,
+            "GLOBAL — todos os aplicativos/conexões de saída do Windows. Somente pulso 0–800 ms com opt-in por sessão; não identifica Roblox. Freeze retém e libera, não descarta.",
+            _legacyPulseActive && _isRunning ? "outbound" : "false", "GLOBAL: filtro literal outbound, SEM restrição por PID. Não há modo contínuo."));
 
     // WinDivert has no in-place filter update. Break-before-make: no overlapping
     // handles/double effects. During the bounded turnover traffic passes normally.
@@ -499,6 +570,9 @@ public sealed class PacketEngine : IDisposable
 
     private void StopCore()
     {
+        _legacyPulseActive = false;
+        ++_legacyGeneration;
+        _legacyPulseTimer?.Dispose(); _legacyPulseTimer = null;
         _captureRequested = false;
         lock (_packetLock)
         {
@@ -668,10 +742,17 @@ public sealed class PacketEngine : IDisposable
             }
 
             bool active = _stateMachine.Current == DesyncStateMachine.State.Active;
+            bool legacy = _legacyPulseActive;
+            if (legacy && (!WithinLegacyDeadline || !active || !addr.Outbound))
+            {
+                FlushThrottleQueueLocked();
+                RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                return false; // Even a delayed watchdog/controller cannot affect packets outside the lease.
+            }
 
             // All effects, including legacy drop/throttle, require live ownership.
             // Driver-free scheduling tests use SendOverride without starting capture.
-            if ((_isRunning || _activeDiagnosticMode != DiagnosticMode.None) &&
+            if (!legacy && (_isRunning || _activeDiagnosticMode != DiagnosticMode.None) &&
                 !IsAuthorizedTraffic(packetBuffer, recvLen, addr))
             {
                 RecordSend(SendPacket(packetBuffer, recvLen, addr));
@@ -991,9 +1072,9 @@ public sealed class PacketEngine : IDisposable
         }
     }
 
-    private bool IsThrottleEffective => (_activeDiagnosticMode == DiagnosticMode.OutboundFreeze &&
+    private bool IsThrottleEffective => (!_legacyPulseActive || WithinLegacyDeadline) && ((_activeDiagnosticMode == DiagnosticMode.OutboundFreeze &&
         _stateMachine.Current == DesyncStateMachine.State.Active) || _isThrottleActive ||
-        (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active));
+        (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active)));
 
     private bool TryReleaseNext(long now)
     {
@@ -1050,6 +1131,7 @@ public sealed class PacketEngine : IDisposable
         {
             Interlocked.Increment(ref _packetsDropped);
             _logger.LogWarning("Packet reinjection failed; counted as dropped, not delivered.");
+            if (_legacyPulseActive) RequestSafetyStop("GLOBAL: reinjeção falhou; pulso encerrado por segurança.");
         }
     }
 

@@ -27,7 +27,13 @@ Para os três efeitos, duração de 0 a 800 ms, padrão 150 ms; 0 não inicia ef
 
 A retenção contínua, quando habilitada, volta a atuar após o pulso; Cancelar encerra o pulso e libera a fila atual, mas não desliga a captura contínua. “Parar Captura”, carregar/padrões e fechar restauram o tráfego e encerram a captura. Salvar preserva perfil/efeito, duração, perdas, filtro e atalho em `%LOCALAPPDATA%/DarkDesync/settings.json`; o alvo não é persistido.
 
-## Escopo e limites de segurança
+## Outbound legado GLOBAL — opt-in, somente pulso
+
+O antigo `8fbb42c` usava filtro literal `outbound`, abrangendo TODOS os aplicativos do Windows. O padrão atual continua estrito por PID/FLOW; ele NÃO é semanticamente equivalente ao antigo global. Para compatibilidade explícita, selecione “Outbound legado — todos os aplicativos (global)” e marque o consentimento visível. Sem ambos, nenhum handle global é aberto. Escolha e consentimento NÃO são persistidos: carregar/padrões/reabrir retorna ao estrito. GLOBAL aparece no status e logs.
+
+Use o mesmo botão de pulso/atalho Espaço, duração 0–800 ms (150 ms padrão; 0 não abre captura). No legado, “Desativado” em efeito mantém a perda percentual do perfil (100% por padrão); Outbound Freeze RETÉM e libera pacotes, NÃO é drop. Há um timer de fechamento no motor e guarda monotônica de prazo por pacote; conclusão, Cancelar, revogação de consentimento, erro e encerramento liberam fila e fecham o handle global. Não há captura GLOBAL contínua, nem fallback global do estrito. O global não restringe PID, protocolo ou IP: pode afetar navegador, chamadas e serviços do Windows durante o pulso. Só use em ambiente autorizado. Não há garantia de precisão de tempo real ou de efeito no Roblox/observador.
+
+## Escopo estrito e limites de segurança (PADRÃO)
 
 Captura exige PID vivo e tuplas completas IPv4. TCP usa conexões estabelecidas da tabela de proprietários do Windows. UDP usa eventos WinDivert FLOW filtrados no driver por `processId == PID and protocol == 17 and not ipv6`, somente metadados em SNIFF/RECV_ONLY, nunca captura global de pacotes. O filtro NETWORK contém protocolo, IPs e portas de cada fluxo observado; mesmo um filtro personalizado `true` não amplia esse escopo. A propriedade é revalidada por pacote antes de qualquer efeito. Loopback e uma porta isolada não autorizam tráfego.
 
@@ -47,7 +53,9 @@ GitHub Actions “Windows validation” compila, executa regressões e smoke WPF
     dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release
     dotnet test DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --filter "Category=Driver"
 
-Roblox Player real NÃO foi executado/testado. Não há evidência de funcionamento em Roblox, jogos ou anticheat; os testes são serviços locais autorizados. O hook e seu atalho global não foram modificados nesta evolução UDP. Valide manualmente pulo/atalho físico no seu ambiente autorizado; os testes automatizados de tecla simulam transições, não uma sessão física de jogo.
+Os testes GLOBAL exigem opt-in SEPARADO `legacy_global_tests=true` junto de `driver_tests=true` no Actions. Afetam a saída inteira da VM efêmera durante pulsos; o tráfego gerado para asserção é só local. Não execute em host compartilhado/produção. Localmente, apenas em VM Windows isolada, consentimento adicional é `$env:DARKDESYNC_GLOBAL_TESTS='1'`; sem ele, esses casos são ignorados. A suíte compara UDP sem fluxo no estrito/global, exige filtro literal outbound e verifica prazo padrão 150 ms, Freeze versus drop, ausência de interceptação fora do pulso, Cancelar, erro, Dispose e watchdog independente.
+
+Roblox Player real NÃO foi executado/testado. Não há evidência de funcionamento em Roblox, jogos ou anticheat; os testes são serviços locais autorizados. O hook pass-through e Espaço não foram modificados. Valide manualmente pulo/atalho físico no ambiente autorizado; os testes automatizados de tecla simulam transições, não uma sessão física de jogo. Captura iniciada não é evidência de funcionamento: no estrito, confira “NENHUM UDP INCLUÍDO”, totais TCP/UDP, eventos de hotkey e duração solicitada/medida.
 
 Fonte limpa (autenticação GitHub necessária por ser privado):
 

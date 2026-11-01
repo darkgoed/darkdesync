@@ -3,8 +3,8 @@ using Microsoft.Extensions.Logging;
 
 namespace DarkDesync.Core;
 
-// Directions are always intersected with verified target connections by PacketEngine.
-public enum FilterMode { Outbound, AllTraffic, ProcessPorts, Custom }
+// Strict modes intersect verified PID tuples. Global legacy is a separate, consented pulse-only entry.
+public enum FilterMode { Outbound, AllTraffic, ProcessPorts, Custom, LegacyGlobalOutbound }
 
 public sealed class FilterBuilder
 {
