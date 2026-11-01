@@ -31,12 +31,14 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0"><StackPanel>
      <Border Style="{StaticResource CardPanel}"><StackPanel>
       <TextBlock Text="01 / ALVO E CAPTURA" Style="{StaticResource SectionLabel}" />
-      <TextBlock Text="Aplicação-alvo" FontWeight="SemiBold" /><TextBlock Text="TCP/IPv4 ou fluxo UDP/IPv4 observado por PID e socket exclusivo. Para UDP, inicie para armar a observação, gere um novo fluxo e tente iniciar novamente. Sem prova segura ou em IPv6, bloqueia." Style="{StaticResource HelpText}" />
+      <TextBlock Text="Aplicação-alvo" FontWeight="SemiBold" /><TextBlock Text="Selecione o PID e ative observação antes de entrar na experiência. A seleção arma FLOW (sem capturar pacotes). UDP antigo não é reconstruído: saia e entre/reconecte se necessário. TCP/HTTPS não comprova captura do canal da sessão." Style="{StaticResource HelpText}" />
       <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions><ComboBox ItemsSource="{Binding Processes}" SelectedItem="{Binding SelectedProcess}" DisplayMemberPath="DisplayName" ToolTip="Aplicação-alvo" /><Button Grid.Column="1" Content="↻" FontSize="19" Padding="0" Margin="6,0,0,0" Style="{StaticResource OutlineButton}" Command="{Binding RefreshProcessesCommand}" ToolTip="Atualizar processos" /></Grid>
       <CheckBox Content="Atalho apenas com o alvo em foco" IsChecked="{Binding OnlyTargetForeground}" Margin="0,0,0,22" />
       <TextBlock Text="Filtro de rede" FontWeight="SemiBold" Margin="0,0,0,8" /><ComboBox ItemsSource="{Binding FilterModeOptions}" SelectedItem="{Binding SelectedFilterModeText}" FontSize="11" ToolTip="{Binding SelectedFilterModeText}" />
       <TextBox Text="{Binding CustomFilterText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsCustomFilterVisible, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0" ToolTip="Restrição adicional WinDivert; nunca amplia o alvo" />
-      <TextBlock Text="Alterar alvo/filtro para e restaura a captura. Novas conexões exigem reinício explícito. Para perda assimétrica, selecione entrada + saída." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
+      <TextBlock Text="UDP novo verificado entra automaticamente no escopo. Troca segura de NETWORK libera a fila e deixa tráfego passar sem efeito no intervalo; não há handles sobrepostos. Parar/reiniciar preserva a observação do mesmo PID. Para perda assimétrica, selecione entrada + saída." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
+      <TextBlock x:Name="NetworkScopeDiagnostics" Text="{Binding NetworkDiagnosticsText}" Style="{StaticResource HelpText}" Margin="0,12,0,0" />
+      <Expander Header="Tuplas elegíveis / escopadas e filtro NETWORK" Foreground="{StaticResource TextMutedBrush}" Margin="0,8,0,0"><TextBlock Text="{Binding ScopedTuplesText}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="10" /></Expander>
      </StackPanel></Border>
      <Border Style="{StaticResource CardPanel}" Margin="0,16,0,0"><StackPanel>
       <TextBlock Text="02 / PERFIL DO CICLO" Style="{StaticResource SectionLabel}" />

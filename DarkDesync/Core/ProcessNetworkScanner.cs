@@ -49,6 +49,22 @@ public sealed class ProcessNetworkScanner
         }
     }
 
+    internal ProcessEndpoint[] GetExclusiveUdpFlows(uint pid, ProcessEndpoint[] flows)
+    {
+        if (flows.Length == 0) return [];
+        try
+        {
+            var bindings = ReadUdpBindings(AF_INET);
+            bindings.AddRange(ReadUdpBindings(23));
+            return flows.Where(f => HasExclusiveUdpBinding(pid, f, bindings)).ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "UDP scope reconciliation has no reliable owner table");
+            return [];
+        }
+    }
+
     internal static bool HasExclusiveUdpBinding(uint pid, ProcessEndpoint flow, IReadOnlyList<UdpBinding> bindings)
     {
         if (pid == 0 || flow.Protocol != 17 || flow.LocalPort == 0 || flow.RemotePort == 0 ||
