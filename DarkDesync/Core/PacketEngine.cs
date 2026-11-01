@@ -102,6 +102,13 @@ public sealed class PacketEngine : IDisposable
         set => _activeDiagnosticMode = value;
     }
 
+    private int _globalDelayMs = 150;
+    public int GlobalDelayMs
+    {
+        get => Volatile.Read(ref _globalDelayMs);
+        set => Volatile.Write(ref _globalDelayMs, Math.Clamp(value, 0, 3000));
+    }
+
     private volatile int _burstLossPercentage = 50;
     public int BurstLossPercentage
     {
@@ -857,6 +864,34 @@ public sealed class PacketEngine : IDisposable
                         }
                     }
 
+                    case DiagnosticMode.LatencyDelay:
+                    {
+                        if (!addr.Outbound || GlobalDelayMs == 0)
+                        {
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        // Bound the queue: saturated traffic is passed through instead of exhausting memory.
+                        if (_throttleQueue.Count >= 512 || recvLen > WinDivertNative.MtuMax)
+                        {
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        var data = new byte[recvLen];
+                        Marshal.Copy(packetBuffer, data, 0, (int)recvLen);
+                        long now = _timestamp();
+                        _throttleQueue.Enqueue(new ThrottledPacket
+                        {
+                            Data = data,
+                            Length = recvLen,
+                            Address = addr,
+                            TimestampTicks = now,
+                            ReleaseAtTicks = now + (long)GlobalDelayMs * Stopwatch.Frequency / 1000
+                        });
+                        Interlocked.Increment(ref _packetsThrottled);
+                        return true;
+                    }
+
                     case DiagnosticMode.BurstLoss:
                     {
                         int pct = Math.Clamp(_burstLossPercentage, 0, 100);
@@ -1126,7 +1161,8 @@ public sealed class PacketEngine : IDisposable
         }
     }
 
-    private bool IsThrottleEffective => (!_legacyPulseActive || WithinLegacyDeadline) && ((_activeDiagnosticMode == DiagnosticMode.OutboundFreeze &&
+    private bool IsThrottleEffective => (!_legacyPulseActive || WithinLegacyDeadline) && (((_activeDiagnosticMode == DiagnosticMode.OutboundFreeze ||
+        _activeDiagnosticMode == DiagnosticMode.LatencyDelay) &&
         _stateMachine.Current == DesyncStateMachine.State.Active) || _isThrottleActive ||
         (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active)));
 

@@ -287,7 +287,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     // Diagnostic mode selection
     private string _selectedDiagnosticModeText = "Desativado";
-    public List<string> DiagnosticModeOptions { get; } = new() { "Desativado", "Outbound Freeze", "Burst Loss", "Asymmetric Loss" };
+    public List<string> DiagnosticModeOptions { get; } = new() { "Desativado", "Outbound Freeze", "Burst Loss", "Asymmetric Loss", "Atraso (ms)" };
 
     public string SelectedDiagnosticModeText
     {
@@ -308,6 +308,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(IsDiagnosticModeSelected));
                 OnPropertyChanged(nameof(IsLegacyModeSelected));
                 OnPropertyChanged(nameof(IsGlobalDropVisible));
+                OnPropertyChanged(nameof(IsGlobalDelayVisible));
             }
         }
     }
@@ -315,6 +316,21 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public bool IsAsymmetricLossVisible => _selectedDiagnosticModeText == "Asymmetric Loss";
     public bool IsDiagnosticModeSelected => !IsLegacyGlobalSelected && _selectedDiagnosticModeText != "Desativado";
     public bool IsLegacyModeSelected => !IsDiagnosticModeSelected && !IsLegacyGlobalSelected;
+    public bool IsGlobalDelayVisible => _selectedDiagnosticModeText == "Atraso (ms)";
+    private int _globalDelayMs = 150;
+    public int GlobalDelayMs
+    {
+        get => _globalDelayMs;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 3000);
+            if (SetProperty(ref _globalDelayMs, clamped))
+            {
+                if (_packetEngine != null) _packetEngine.GlobalDelayMs = clamped;
+                OnPropertyChanged(nameof(NetworkDiagnosticsText));
+            }
+        }
+    }
 
     // Diagnostic properties (0–800 ms, default 150 ms)
     private int _diagnosticCycleDurationMs = 150;
@@ -470,7 +486,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get
         {
             var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
-            if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? "START ativo até STOP" : "STOP / parado")}\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
+            if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? "START ativo até STOP" : "STOP / parado")}\nEfeito: {SelectedDiagnosticModeText}" +
+                (IsGlobalDelayVisible ? $" • retenção por pacote: {GlobalDelayMs} ms" : "") +
+                $"\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
             return $"PID {s.ProcessId} • FLOW {(s.Observing ? "armado" : "inativo")} • NETWORK {(s.Running ? "ativo" : s.Requested ? "aguardando tupla" : "parado")}\nTCP: observados {s.TcpObserved}, escopados {s.TcpScoped} | UDP: sockets {s.UdpBindings}, fluxos observados {s.UdpObserved}, elegíveis {s.UdpEligible}, escopados {s.UdpScoped}\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
         }
     }
@@ -651,6 +669,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _packetEngine.ThrottleReleaseDelayMs = ThrottleReleaseDelayMs;
             _packetEngine.ThrottleJitterMs = ThrottleJitterMs;
             _packetEngine.BurstLossPercentage = BurstLossPercentage;
+            _packetEngine.GlobalDelayMs = GlobalDelayMs;
             _packetEngine.AsymmetricInboundLossPercentage = AsymmetricInboundLossPercentage;
             _packetEngine.AsymmetricOutboundLossPercentage = AsymmetricOutboundLossPercentage;
 
@@ -764,6 +783,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
                     "Burst Loss" => DiagnosticMode.BurstLoss,
                     "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
+                    "Atraso (ms)" => DiagnosticMode.LatencyDelay,
                     _ => DiagnosticMode.None
                 };
                 bool started = _packetEngine.BeginLegacyGlobalContinuous(effect);
@@ -812,7 +832,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 Chance = ThrottleChance, SpacingMs = ThrottleReleaseDelayMs, JitterMs = ThrottleJitterMs,
                 Hotkey = SelectedHotkeyName, OnlyTargetForeground = OnlyTargetForeground,
                 FilterMode = GetFilterMode(), CustomFilter = CustomFilterText,
-                DiagnosticDurationMs = DiagnosticCycleDurationMs,
+                DiagnosticDurationMs = DiagnosticCycleDurationMs, GlobalDelayMs = GlobalDelayMs,
                 BurstLossPercentage = BurstLossPercentage,
                 AsymmetricInboundPercentage = AsymmetricInboundLossPercentage,
                 AsymmetricOutboundPercentage = AsymmetricOutboundLossPercentage,
@@ -821,6 +841,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
                     "Burst Loss" => DiagnosticMode.BurstLoss,
                     "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
+                    "Atraso (ms)" => DiagnosticMode.LatencyDelay,
                     _ => DiagnosticMode.None
                 }
             });
@@ -842,6 +863,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ThrottleTimeframeMs = s.RetentionMs; ThrottleChance = s.Chance; ThrottleReleaseDelayMs = s.SpacingMs;
         ThrottleJitterMs = s.JitterMs; SelectedHotkeyName = s.Hotkey; OnlyTargetForeground = s.OnlyTargetForeground;
         DiagnosticCycleDurationMs = s.DiagnosticDurationMs;
+        GlobalDelayMs = s.GlobalDelayMs;
         BurstLossPercentage = s.BurstLossPercentage;
         AsymmetricInboundLossPercentage = s.AsymmetricInboundPercentage;
         AsymmetricOutboundLossPercentage = s.AsymmetricOutboundPercentage;
@@ -850,6 +872,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             DiagnosticMode.OutboundFreeze => "Outbound Freeze",
             DiagnosticMode.BurstLoss => "Burst Loss",
             DiagnosticMode.AsymmetricLoss => "Asymmetric Loss",
+            DiagnosticMode.LatencyDelay => "Atraso (ms)",
             _ => "Desativado"
         };
         SelectedProcess = null;
