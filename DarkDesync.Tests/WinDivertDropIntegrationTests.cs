@@ -74,6 +74,8 @@ public class WinDivertDropIntegrationTests
         string filter = $"loopback and outbound and tcp.SrcPort == {local.Port} and tcp.DstPort == {remote.Port}";
         Assert.True(engine.Start(FilterMode.Custom, (uint)Environment.ProcessId, customFilter: filter), error);
         using var controller = new DesyncController(NullLogger<DesyncController>.Instance, engine.StateMachine, engine);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        controller.CycleFinished += _ => completed.TrySetResult();
         Assert.True(controller.TriggerCycle(mode, 300));
         byte[] received = new byte[1];
         var receive = server.GetStream().ReadExactlyAsync(received).AsTask();
@@ -89,6 +91,9 @@ public class WinDivertDropIntegrationTests
             Assert.True(engine.PacketsThrottled > 0); Assert.Equal(0, engine.PacketsDropped);
         }
         else Assert.True(engine.PacketsDropped > 0);
+        // Socket delivery can resume inside the synchronous restore callback, before
+        // the controller publishes completion. Assert normal-phase behavior only AFTER it.
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(3));
         // Normal traffic must resume on the same socket without changing the filter.
         await client.GetStream().WriteAsync(new byte[] { 72 });
         await server.GetStream().ReadExactlyAsync(received).AsTask().WaitAsync(TimeSpan.FromSeconds(3));
