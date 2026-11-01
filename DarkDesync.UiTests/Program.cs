@@ -88,6 +88,43 @@ internal static class Program
                 "GLOBAL mode selection persists, capture never starts on load");
             Require(vm.GlobalDelayMs == 450 && vm.SelectedDiagnosticModeText == "Atraso (ms)",
                 "Saved delay milliseconds/effect must roundtrip without starting capture");
+            // Explicit driver-free lifecycle model; native capture is covered only by the Driver suite.
+            var engine = (PacketEngine)typeof(MainViewModel).GetField("_packetEngine",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(vm)!;
+            void ModelRunning()
+            {
+                typeof(PacketEngine).GetField("_isRunning", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(engine, true);
+                typeof(PacketEngine).GetField("_captureRequested", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(engine, true);
+                typeof(MainViewModel).GetProperty(nameof(vm.IsEngineRunning))!.SetValue(vm, true);
+                engine.StateMachine.TryActivate();
+            }
+            ModelRunning();
+            Require(vm.EngineToggleText == "STOP", "Running engine exposes STOP");
+            vm.CycleProfileEnabled = false;
+            vm.ThrottleEnabled = true; vm.ThrottleEnabled = false;
+            vm.SelectedThrottleMode = vm.ThrottleModeOptions[1]; Pump();
+            Require(engine.IsRunning && engine.StateMachine.Current == DesyncStateMachine.State.Active,
+                "Unrelated legacy controls cannot cancel continuous GLOBAL");
+            mode.SelectedItem = "Drop (%)"; Pump();
+            Require(!engine.IsRunning && vm.EngineToggleText == "START" && vm.IsGlobalDropVisible,
+                "Effect change stops GLOBAL and shows explicit Drop controls");
+            Require(!delaySlider.IsVisible, "Delay widget hides for Drop");
+            vm.DropPercentage = 37; vm.SaveSettingsCommand.Execute(null);
+            vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
+            Require(vm.SelectedDiagnosticModeText == "Drop (%)" && vm.DropPercentage == 37 && !engine.IsRunning,
+                "Explicit Drop roundtrip never starts capture");
+            mode.SelectedItem = "Desativado"; vm.SaveSettingsCommand.Execute(null);
+            vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
+            Require(vm.SelectedDiagnosticModeText == "Desativado" && !vm.IsGlobalDropVisible && !engine.IsRunning,
+                "Old GLOBAL None settings remain disabled, never implicit loss");
+            vm.LoadSettingsCommand.Execute(null); Pump();
+            Require(vm.SelectedDiagnosticModeText == "Desativado", "Repeated load is independent of previous mode");
+            ModelRunning();
+            vm.SelectedFilterModeText = vm.FilterModeOptions[0]; Pump();
+            Require(!engine.IsRunning && vm.EngineToggleText == "START", "Filter change safely stops GLOBAL");
+            vm.SelectedDiagnosticModeText = "Atraso (ms)"; Pump();
+            Require(vm.IsDiagnosticModeSelected && delaySlider.IsVisible,
+                "Strict Lag uses a diagnostic pulse, not implicit legacy drop");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
             Console.WriteLine("PASS: WPF visual tree, mode/duration bindings, loss controls, shared settings, zero-duration, no duplicate pulse UI; no live driver or physical keyboard claim.");

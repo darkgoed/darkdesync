@@ -14,7 +14,7 @@ public sealed class ThrottledPacket
     public uint Length { get; init; }
     public WinDivertNative.Address Address { get; init; }
     public long TimestampTicks { get; init; }
-    public long ReleaseAtTicks { get; init; }
+    public long ReleaseAtTicks { get; set; }
 }
 
 /// <summary>
@@ -99,14 +99,35 @@ public sealed class PacketEngine : IDisposable
     public DiagnosticMode ActiveDiagnosticMode
     {
         get => _activeDiagnosticMode;
-        set => _activeDiagnosticMode = value;
+        set
+        {
+            lock (_packetLock)
+            {
+                // Pending packets belong to the previous effect, never to its successor.
+                if (_activeDiagnosticMode != value) FlushThrottleQueueLocked();
+                _activeDiagnosticMode = value;
+            }
+        }
     }
 
     private int _globalDelayMs = 150;
     public int GlobalDelayMs
     {
         get => Volatile.Read(ref _globalDelayMs);
-        set => Volatile.Write(ref _globalDelayMs, Math.Clamp(value, 0, 3000));
+        set
+        {
+            lock (_packetLock)
+            {
+                Volatile.Write(ref _globalDelayMs, Math.Clamp(value, 0, 3000));
+                // Rebase pending Lag packets on arrival, not slider-change time.
+                // Keeps FIFO without the old 3000ms head blocking a new 50ms setting.
+                if (_activeDiagnosticMode != DiagnosticMode.LatencyDelay) return;
+                foreach (var packet in _throttleQueue)
+                    packet.ReleaseAtTicks = packet.TimestampTicks + (long)_globalDelayMs * Stopwatch.Frequency / 1000;
+                _nextReleaseTicks = 0;
+                while (TryReleaseNext(_timestamp())) { }
+            }
+        }
     }
 
     private volatile int _burstLossPercentage = 50;
@@ -130,12 +151,6 @@ public sealed class PacketEngine : IDisposable
         set => _asymmetricOutboundLossPercentage = Math.Clamp(value, 0, 100);
     }
 
-    private volatile bool _freezeDropsPackets = false;
-    public bool FreezeDropsPackets
-    {
-        get => _freezeDropsPackets;
-        set => _freezeDropsPackets = value;
-    }
 
     private readonly ConcurrentQueue<ThrottledPacket> _throttleQueue = new();
     private readonly object _handleLock = new();
@@ -144,7 +159,7 @@ public sealed class PacketEngine : IDisposable
     // Always acquire packet lock before handle lock: enqueue, release and flush are atomic.
     private readonly object _packetLock = new();
     private long _nextReleaseTicks;
-    private bool _stopping;
+    private volatile bool _stopping;
     // Narrow driver-free seams; production uses the native sender and monotonic clock.
     private Func<long> _timestamp = Stopwatch.GetTimestamp;
     private Func<IntPtr, uint, WinDivertNative.Address, bool>? _sendOverride = null;
@@ -578,7 +593,7 @@ public sealed class PacketEngine : IDisposable
 
     private void PublishGlobalStatus() => Volatile.Write(ref _scopeStatus,
         new CaptureScopeStatus(0, false, _legacyPulseActive, _isRunning, 0, 0, 0, 0, 0, 0,
-            "GLOBAL — todas as conexões de saída do Windows. START mantém o efeito escolhido até STOP; não identifica Roblox. Freeze retém e libera, não descarta.",
+            _lastCaptureError ?? "GLOBAL — todas as conexões de saída do Windows. START mantém o efeito escolhido até STOP; não identifica Roblox. Freeze retém e libera, não descarta.",
             _legacyPulseActive && _isRunning ? "outbound" : "false", "GLOBAL: filtro literal outbound, SEM restrição por PID. START/STOP contínuo."));
 
     // WinDivert has no in-place filter update. Break-before-make: no overlapping
@@ -639,6 +654,8 @@ public sealed class PacketEngine : IDisposable
         {
             _stopping = true;
             _isRunning = false;
+            _isDropActive = false;
+            _isThrottleActive = false;
         }
         _cts?.Cancel();
         RetireCaptureEpoch();
@@ -804,7 +821,12 @@ public sealed class PacketEngine : IDisposable
 
             bool active = _stateMachine.Current == DesyncStateMachine.State.Active;
             bool legacy = _legacyPulseActive;
-            if (legacy && (!WithinLegacyDeadline || !active || !addr.Outbound))
+            if (legacy && !addr.Outbound)
+            {
+                RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                return false; // Unexpected inbound must not flush the outbound effect queue.
+            }
+            if (legacy && (!WithinLegacyDeadline || !active))
             {
                 FlushThrottleQueueLocked();
                 RecordSend(SendPacket(packetBuffer, recvLen, addr));
@@ -829,16 +851,12 @@ public sealed class PacketEngine : IDisposable
                     {
                         if (addr.Outbound)
                         {
-                            if (_freezeDropsPackets)
-                            {
-                                Interlocked.Increment(ref _packetsDropped);
-                                return true;
-                            }
-                            else
                             {
                                 // Bound retained memory even under a saturated sender.
                                 if (_throttleQueue.Count >= 512 || recvLen > WinDivertNative.MtuMax)
                                 {
+                                    RequestSafetyStop("Freeze: limite de retenção atingido; STOP e liberação por segurança.");
+                                    FlushThrottleQueueLocked();
                                     RecordSend(SendPacket(packetBuffer, recvLen, addr));
                                     return false;
                                 }
@@ -868,12 +886,16 @@ public sealed class PacketEngine : IDisposable
                     {
                         if (!addr.Outbound || GlobalDelayMs == 0)
                         {
+                            if (addr.Outbound) FlushThrottleQueueLocked();
                             RecordSend(SendPacket(packetBuffer, recvLen, addr));
                             return false;
                         }
-                        // Bound the queue: saturated traffic is passed through instead of exhausting memory.
-                        if (_throttleQueue.Count >= 512 || recvLen > WinDivertNative.MtuMax)
+                        // Fail open in FIFO order: release oldest early, never let new traffic overtake it.
+                        if (_throttleQueue.Count >= 512 && _throttleQueue.TryDequeue(out var oldest))
+                            SendThrottledPacket(oldest);
+                        if (recvLen > WinDivertNative.MtuMax)
                         {
+                            FlushThrottleQueueLocked();
                             RecordSend(SendPacket(packetBuffer, recvLen, addr));
                             return false;
                         }
@@ -892,9 +914,10 @@ public sealed class PacketEngine : IDisposable
                         return true;
                     }
 
+                    case DiagnosticMode.PacketDrop:
                     case DiagnosticMode.BurstLoss:
                     {
-                        int pct = Math.Clamp(_burstLossPercentage, 0, 100);
+                        int pct = _activeDiagnosticMode == DiagnosticMode.PacketDrop ? _dropPercentage : _burstLossPercentage;
                         bool drop = pct >= 100 || (pct > 0 && random.Next(100) < pct);
                         if (drop)
                         {
@@ -929,6 +952,13 @@ public sealed class PacketEngine : IDisposable
                 }
             }
 
+            // Disabled GLOBAL is pass-through. Legacy profile flags cannot secretly turn it into loss.
+            if (_filterMode == FilterMode.LegacyGlobalOutbound)
+            {
+                RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                return false;
+            }
+
             bool shouldDrop = false;
             bool shouldThrottle = false;
 
@@ -959,8 +989,11 @@ public sealed class PacketEngine : IDisposable
             }
             else if (shouldThrottle)
             {
-                if (_throttleQueue.Count >= 512 || recvLen > WinDivertNative.MtuMax)
+                if (_throttleQueue.Count >= 512 && _throttleQueue.TryDequeue(out var oldest))
+                    SendThrottledPacket(oldest);
+                if (recvLen > WinDivertNative.MtuMax)
                 {
+                    FlushThrottleQueueLocked();
                     RecordSend(SendPacket(packetBuffer, recvLen, addr));
                     return false;
                 }
@@ -1043,13 +1076,14 @@ public sealed class PacketEngine : IDisposable
     private void RequestSafetyStop(string reason)
     {
         if (!_isRunning || Interlocked.Exchange(ref _safetyStopRequested, 1) != 0) return;
+        int generation = Volatile.Read(ref _legacyGeneration);
         _stopping = true;
         // Never join the capture worker from itself. Serialize against UI stop/start.
         _ = Task.Run(() =>
         {
             lock (_lifecycleLock)
             {
-                if (_disposed) return;
+                if (_disposed || generation != _legacyGeneration) return;
                 _lastCaptureError = reason;
                 StopCore();
                 ReconcileScope();
@@ -1146,17 +1180,16 @@ public sealed class PacketEngine : IDisposable
         {
             try
             {
-                if (TryReleaseNext(_timestamp()))
-                {
-                    continue;
-                }
-
+                // Bounded turns retain fairness under sustained traffic, without busy-spinning.
+                for (int released = 0; released < 64 && TryReleaseNext(_timestamp()); released++) { }
                 await Task.Delay(4, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Throttle release loop exception");
+                RequestSafetyStop("Falha na liberação da fila: " + ex.Message);
+                break;
             }
         }
     }
@@ -1176,7 +1209,8 @@ public sealed class PacketEngine : IDisposable
                 if ((!effective || (now >= oldest.ReleaseAtTicks && now >= _nextReleaseTicks)) && _throttleQueue.TryDequeue(out var packet))
                 {
                     SendThrottledPacket(packet);
-                    _nextReleaseTicks = Math.Max(now, _timestamp()) + (long)ThrottleReleaseDelayMs * Stopwatch.Frequency / 1000;
+                    _nextReleaseTicks = _activeDiagnosticMode == DiagnosticMode.LatencyDelay ? 0 :
+                        Math.Max(now, _timestamp()) + (long)ThrottleReleaseDelayMs * Stopwatch.Frequency / 1000;
                     return true;
                 }
             }
@@ -1221,7 +1255,7 @@ public sealed class PacketEngine : IDisposable
         {
             Interlocked.Increment(ref _packetsDropped);
             _logger.LogWarning("Packet reinjection failed; counted as dropped, not delivered.");
-            if (_legacyPulseActive) RequestSafetyStop("GLOBAL: reinjeção falhou; captura encerrada por segurança.");
+            if (_isRunning) RequestSafetyStop("Reinjeção falhou; captura encerrada por segurança.");
         }
     }
 

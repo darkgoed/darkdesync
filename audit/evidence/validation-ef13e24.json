@@ -1,0 +1,680 @@
+{
+  "run": {
+    "databaseId": 41290149611,
+    "headSha": "ef13e24527602b891c88c8b2bde1b2e68a5ca14d",
+    "event": "workflow_dispatch",
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/darkgoed/darkdesync/actions/runs/41290149611"
+  },
+  "inputs": {
+    "driver_tests": true,
+    "legacy_global_tests": true
+  },
+  "jobs": [
+    {
+      "name": "windows",
+      "conclusion": "success",
+      "url": "https://github.com/darkgoed/darkdesync/actions/runs/41290149611/job/124799535111"
+    },
+    {
+      "name": "driver-loopback",
+      "conclusion": "success",
+      "url": "https://github.com/darkgoed/darkdesync/actions/runs/41290149611/job/124799535363"
+    }
+  ],
+  "suites": {
+    "driver.trx": {
+      "counters": {
+        "total": "23",
+        "executed": "23",
+        "passed": "23",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "cases": [
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.GlobalStartStop_RunsBeyond800ms_AndStopReleasesTraffic(mode: OutboundFreeze)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.ExplicitGlobal150ms_CapturesUnmappedUdp_StrictRefuses_OutsidePulseUnaffected(mode: OutboundFreeze)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.LiveSliderReductionAndStop_PreserveRealUdpOrder(newDelay: 50)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.GlobalStartStop_RunsBeyond800ms_AndStopReleasesTraffic(mode: PacketDrop)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.WinDivertDropIntegrationTests.ScopedTcpLoopback_EffectAndRestoration(mode: AsymmetricLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.WinDivertDropIntegrationTests.RapidStartStop_DrainsWorkersWithoutDisposedToken(repetitions: 12)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpDriverIntegrationTests.Tcp443First_LateUdpAutoAdded_RestartPreservesLedger_CloseRevokesWithoutDeadlock(tcpPort: 443)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.WinDivertDropIntegrationTests.ScopedTcpLoopback_EffectAndRestoration(mode: OutboundFreeze)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.GlobalRestoresOnCancelShutdownAndControllerError(action: \"error\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.ContinuousGlobalDelay_RespectsMilliseconds_AndStopRestores(delayMs: 240)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpDriverIntegrationTests.UdpOnlyChildPid_FlowScopedEffect_OtherPidUntouched_AndRestore(mode: AsymmetricLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.GlobalRestoresOnCancelShutdownAndControllerError(action: \"dispose\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.ExplicitGlobal150ms_CapturesUnmappedUdp_StrictRefuses_OutsidePulseUnaffected(mode: PacketDrop)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.WinDivertDropIntegrationTests.ScopedTcpLoopback_EffectAndRestoration(mode: BurstLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.LiveSliderReductionAndStop_PreserveRealUdpOrder(newDelay: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.GlobalRestoresOnCancelShutdownAndControllerError(action: \"cancel\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpDriverIntegrationTests.UdpOnlyChildPid_FlowScopedEffect_OtherPidUntouched_AndRestore(mode: BurstLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.GlobalRestoresOnCancelShutdownAndControllerError(action: \"start-log\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.DisabledGlobal_DoesNotInheritDropOrThrottle_AndModeChangeCloses(mode: None)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.EngineWatchdogClosesGlobalEvenWithoutController(duration: 150)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalDriverTests.GlobalStartStop_RunsBeyond800ms_AndStopReleasesTraffic(mode: BurstLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpDriverIntegrationTests.UdpSharedBindingAcrossRealPids_RefusesPayloadCapture(shared: True)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpDriverIntegrationTests.UdpOnlyChildPid_FlowScopedEffect_OtherPidUntouched_AndRestore(mode: OutboundFreeze)",
+          "outcome": "Passed"
+        }
+      ]
+    },
+    "windows.trx": {
+      "counters": {
+        "total": "129",
+        "executed": "129",
+        "passed": "129",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "cases": [
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.ExplicitDrop_IsSeparateFromDisabledAndOverridesThrottle(percent: 50, dropped: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.Settings_ClampDuration(input: 0, expected: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DesyncControllerTests.TriggerCycle_RunsLifecycleAndRestoresIdle",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PerformanceRegressionTests.PacketStats_BurstDoesNotFloodSubscribers",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Restore_SerializesWithInFlightEnqueue",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Jitter_SamplesInclusiveBounds_ClampsDelayAtZero(high: True, expectedMs: 110)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.Ledger_OverflowInvalidatesRatherThanSilentlyDroppingEvidence",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.Freeze_HoldsOnlyOutboundUntilRestore_NotThrottleDeadline",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.Ledger_RequiresPidLayerCompleteMappedIpv4Tuple",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.ContinuousGlobalNeedsSelectedModeNotAdditionalConsent",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.LagDeadline_IsPerPacket_NotStartLifetime(delay: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.UnexpectedInbound_NeverFlushesOrChangesOutboundQueue(mode: LatencyDelay)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.SliderIncrease_RebasesPending_ZeroFlushesInOrder",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.StateMachineTests.TryActivate_WhenAlreadyActive_ReturnsFalse",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ServiceTests.HotkeyService_AvailableKeys_ContainsSpaceAndFunctionKeys",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ServiceTests.ProcessService_GetWindowedProcesses_ReturnsWithoutCrashing",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineLoopbackTests.UnidentifiedLoopback_DoesNotLoseOrRetainPackets",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.EffectSwitch_FlushesOldQueueExactlyOnce_AndResetsOrderingClock",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ConfigurationBehaviorTests.LoadingStopsCaptureBeforeApplyingAllSettings",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.StateMachineTests.StandardLifecycle_TransitionsCorrectly",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.FailedThrottleRelease_IsCountedAsDropNotDelivery",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ConfigurationBehaviorTests.JitterOnlyCycleAndProfileToggleCancelWithoutDisablingContinuous",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Stop_LatePacketCannotOvertakeHeldPackets",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.Lag_DoesNotApplyThrottleSpacingBetweenDuePackets",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.AllModes_RejectOtherTupleUdpFragmentsDeadTargetAndUnknownOwnership(mode: AsymmetricLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.FilterBuilderTests.BuildFilter_WithSinglePort_ContainsTcpAndUdpClauses",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PerformanceRegressionTests.InterfaceTelemetry_IsLowFrequencyAndLowPriority",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DesyncControllerTests.CancelCycle_ImmediatelyRestoresIdle",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.LagDeadline_IsPerPacket_NotStartLifetime(delay: 3000)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.Settings_ClampDuration(input: -1, expected: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.StateMachineTests.InitialState_IsIdle",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_UsesStrictPercentageBoundary(roll: 50, queued: 0, passed: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ImplicitDrop_WithoutThrottle_RespectsPercentage(percentage: 0, dropped: 0, passed: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.UdpModes_UseSameEngineAndDirectionRules(mode: AsymmetricLoss, outbound: False, dropped: 0, held: 0, passed: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ImplicitDrop_WithoutThrottle_RespectsPercentage(percentage: 100, dropped: 1, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.FailedGlobalReinjectionClosesLease_NotMerelyCountedAsWorking",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: 2001, expected: 2000)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ThrottleTests.ThrottleProperties_DefaultAndClampedCorrectly",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PerformanceRegressionTests.Countdown_LimitsUiTicksWithoutShorteningCycle",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.ZeroDuration_IsNoOp_AndCancellationCannotRestoreNextPulse",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.StateMachineTests.ForceIdle_ResetsStateFromAnywhere",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ThrottleTests.FreezeQueue_IsBounded_AndSafetyStopDeliversOnce",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.DisabledCycleProfile_PassesPacketsWhileActive",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.GlobalWithoutConsentOrWithoutSelectedMode_NeverOpensHandle",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.StateMachineTests.ConcurrentActivation_OnlyOneSucceeds",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.SettingsTests.SettingsCommands_RoundTripWithoutStartingCapture",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.QueueSaturation_IsBoundedAndNeverOvertakesOldest(mode: None)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.StateMachineTests.TryActivate_WhenRestoring_ReturnsFalse",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_Extremes_SelectOnlyThrottleOrPass(chance: 100, queues: True)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ConfigurationBehaviorTests.PresetsRemainFixedAfterCustomEditsAndLoading",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.FilterBuilderTests.BuildFilter_WithMultiplePorts_ConnectsWithOr",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.UdpModes_UseSameEngineAndDirectionRules(mode: BurstLoss, outbound: False, dropped: 1, held: 0, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.UdpModes_UseSameEngineAndDirectionRules(mode: OutboundFreeze, outbound: False, dropped: 0, held: 0, passed: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Stop_LateReceivedPacketIsNotOrphanedInQueue",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.GlobalDisabled_IgnoresAllLegacyDropAndThrottleFlags(percent: 50)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.UdpModes_UseSameEngineAndDirectionRules(mode: OutboundFreeze, outbound: True, dropped: 0, held: 1, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.FilterBuilderTests.GetFilter_WithOutboundMode_ReturnsOutbound",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.MinimalUdpDatagram_IsParsed_AndMalformedLengthOrIpv6FailClosed",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.QueueSaturation_IsBoundedAndNeverOvertakesOldest(mode: LatencyDelay)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.LagDeadline_IsPerPacket_NotStartLifetime(delay: 150)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.DisableThrottle_FlushesImmediatelyAndResetsSpacing",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.DisposeTwiceAndCancelAfterDispose_RestoreWithoutDisposedToken",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ServiceTests.HotkeyService_GetKeyName_ReturnsExpectedNames",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ConcurrentReleaseAndFlush_PreserveFifoWithoutDuplicates",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.DelayMillisecondsControlPerPacketNotEngineLifetime",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.StrictUnknownUdpPasses_ConsentedLeaseDropsWithoutPidOrFlow_ExpiryPasses",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.LagDeadline_IsPerPacket_NotStartLifetime(delay: 50)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.UdpModes_UseSameEngineAndDirectionRules(mode: AsymmetricLoss, outbound: True, dropped: 1, held: 0, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ExplicitDrop_TakesPriorityOverThrottle",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Jitter_SamplesInclusiveBounds_ClampsDelayAtZero(high: False, expectedMs: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.HeldGlobalKey_DoesNotRepeat_UntilRelease",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.LossModes_OverrideLegacyAndContinuousThrottle(mode: AsymmetricLoss, outbound: True, loss: 100, dropped: 1, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.ExplicitDrop_IsSeparateFromDisabledAndOverridesThrottle(percent: 100, dropped: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.Settings_ClampDuration(input: 800, expected: 800)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.SliderReduction_RebasesPendingFromArrival_WithoutHeadOfLineOrSpacing",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.Ledger_SameSocketDifferentRemotes_DeletionUsesFullTupleAndEndpointGeneration",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing(forceIdle: False)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineLoopbackTests.SamePortsDifferentRemoteEndpoint_DoNotAuthorizeLoopback",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.SwitchingBackToStrictRevokesLeaseBeforeAnyOtherPacket",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ConfigurationBehaviorTests.DisabledEffectsDoNotStartCaptureOrActivateState",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ScopeDiagnosticsTests.EmptyScopeExplicitlyGuidesObservationBeforeExperience_NotOldUdpReconstruction",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.Settings_ClampDuration(input: 801, expected: 800)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.FailedPassThrough_DoesNotCountAsDelivered",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ContinuousThrottle_HoldsInIdleAndSurvivesCycleCancellation",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.AllModes_RejectOtherTupleUdpFragmentsDeadTargetAndUnknownOwnership(mode: BurstLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.NewEffects_StillRejectUnauthorizedStrictTraffic(mode: PacketDrop)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.StrictReinjectionFailure_StopsInsteadOfReportingWorkingCapture",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.LossModes_OverrideLegacyAndContinuousThrottle(mode: AsymmetricLoss, outbound: False, loss: 0, dropped: 0, passed: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.GlobalDisabled_IgnoresAllLegacyDropAndThrottleFlags(percent: 100)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ServiceTests.KeyboardCallback_ForwardsSpace_AndDoesNotConsumeOrRepeat",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.UnexpectedInbound_NeverFlushesOrChangesOutboundQueue(mode: OutboundFreeze)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.UnifiedCycle_RestoresModeAndRejectsOverlap(mode: OutboundFreeze)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Restore_FlushesOrderedPacketsOnceAndIgnoresSpacing(forceIdle: True)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.GlobalFreezeRetainsNotDrops_ExpiredLeaseAndCancelFlushOnce",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.UnifiedCycle_RestoresModeAndRejectsOverlap(mode: AsymmetricLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.GlobalUsesExistingSpaceEdge_OnePressUntilRelease",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.UdpPortsAloneUnknownRemoteDeletedFlowAndAmbiguousBinding_NeverAuthorize",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: 123, expected: 123)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.UdpModes_UseSameEngineAndDirectionRules(mode: BurstLoss, outbound: True, dropped: 1, held: 0, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.LostTargetWhileCapturing_StopsAndReportsWithoutDroppingPacket",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ConfigurationBehaviorTests.StoreClampsInvalidValuesAndRejectsInvalidEnumStrings",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.MissingTarget_BlocksEveryFilterBeforeOpeningDriver",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.GlobalModeCanBeRememberedButNeverAutomaticallyStarts",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.GlobalDisabled_IgnoresAllLegacyDropAndThrottleFlags(percent: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.LossModes_OverrideLegacyAndContinuousThrottle(mode: BurstLoss, outbound: False, loss: 0, dropped: 0, passed: 1)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_UsesStrictPercentageBoundary(roll: 49, queued: 1, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DesyncControllerTests.TriggerCycle_RapidRepetitionIgnored",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.ExplicitDrop_IsSeparateFromDisabledAndOverridesThrottle(percent: 0, dropped: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ScopeDiagnosticsTests.DiagnosticsSeparateTcpAndUdpCountersFromAuthorizedEffects",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.AllModes_RejectOtherTupleUdpFragmentsDeadTargetAndUnknownOwnership(mode: OutboundFreeze)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ScopeDiagnosticsTests.TupleDetailsShowProtocolsBothEndpointsAndNoPortOnlyAuthorization",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.FilterBuilderTests.BuildFilter_WithExcessivePorts_FailsClosedRatherThanTruncating",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.Settings_ClampDuration(input: 150, expected: 150)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ReleaseSpacing_SurvivesAnEmptyQueue",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.UnifiedCycle_RestoresModeAndRejectsOverlap(mode: BurstLoss)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.LegacyGlobalCompatibilityTests.DelaySettingClampsAndPersistsSeparatelyFromPulseDuration",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Release_UsesFrozenJitterDeadlineAndPreservesFifoInBurst",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.Ownership_RejectsSharedPortOtherPidOtherIpAndIpv6DualStack",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.JitterSetting_IsClamped(value: -1, expected: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.FilterBuilderTests.BuildAllTrafficFilter_ReturnsTrue",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.Active_DefaultDrop100_ThrottleEnabled_QueuesInsteadOfDropping",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.PacketEngineSchedulingTests.ThrottleChance_Extremes_SelectOnlyThrottleOrPass(chance: 0, queues: False)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.FilterBuilderTests.ScopedFilter_NeverLosesExactTupleToBroadCustomRestriction",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.ConfigurationBehaviorTests.DisableThrottleDuringCycleCancelsInsteadOfFallingBackToDrop",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.FreezeOverflow_FailsOpenByStopping_FlushesExactlyOnce",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.DiagnosticModesTests.LossModes_OverrideLegacyAndContinuousThrottle(mode: BurstLoss, outbound: True, loss: 100, dropped: 1, passed: 0)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.AuditRegressionTests.NewEffects_StillRejectUnauthorizedStrictTraffic(mode: LatencyDelay)",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.UdpIsolationTests.Filters_ArePidOnlyMetadataAndFullTuplePayload_NotGlobalOrPortOnly",
+          "outcome": "Passed"
+        },
+        {
+          "name": "DarkDesync.Tests.FilterBuilderTests.BuildFilter_WithNoPorts_FailsClosed",
+          "outcome": "Passed"
+        }
+      ]
+    }
+  }
+}

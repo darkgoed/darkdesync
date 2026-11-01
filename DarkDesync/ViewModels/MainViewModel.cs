@@ -21,7 +21,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (!SetProperty(ref _cycleProfileEnabled, value)) return;
             if (_packetEngine != null) _packetEngine.CycleDropEnabled = value;
-            if (!value) _controller.CancelCycle();
+            if (!value && !IsLegacyGlobalSelected) _controller.CancelCycle();
         }
     }
     private string _selectedThrottleMode = "No atalho / ciclo";
@@ -32,7 +32,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (!ThrottleModeOptions.Contains(value) || !SetProperty(ref _selectedThrottleMode, value)) return;
             if (_packetEngine != null) _packetEngine.ThrottleContinuous = value == ThrottleModeOptions[1];
-            _controller.CancelCycle();
+            if (!IsLegacyGlobalSelected) _controller.CancelCycle();
         }
     }
     private string _settingsStatus = "Salve para reutilizar ao abrir. O alvo não é salvo.";
@@ -106,7 +106,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public bool IsCustomFilterVisible => GetFilterMode() == FilterMode.Custom;
     public bool IsLegacyGlobalSelected => GetFilterMode() == FilterMode.LegacyGlobalOutbound;
     public bool IsStrictCaptureMode => !IsLegacyGlobalSelected;
-    public bool IsGlobalDropVisible => IsLegacyGlobalSelected && _selectedDiagnosticModeText == "Desativado";
+    public bool IsGlobalDropVisible => _selectedDiagnosticModeText == "Drop (%)";
 
     // Properties
     private ProcessInfo? _selectedProcess;
@@ -193,7 +193,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _throttleEnabled, value))
             {
-                if (!value) _controller.CancelCycle();
+                if (!value && !IsLegacyGlobalSelected) _controller.CancelCycle();
                 if (_packetEngine != null)
                 {
                     _packetEngine.ThrottleEnabled = value;
@@ -291,13 +291,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     // Diagnostic mode selection
     private string _selectedDiagnosticModeText = "Desativado";
-    public List<string> DiagnosticModeOptions { get; } = new() { "Desativado", "Outbound Freeze", "Burst Loss", "Asymmetric Loss", "Atraso (ms)" };
+    public List<string> DiagnosticModeOptions { get; } = new() { "Desativado", "Outbound Freeze", "Burst Loss", "Asymmetric Loss", "Atraso (ms)", "Drop (%)" };
 
     public string SelectedDiagnosticModeText
     {
         get => _selectedDiagnosticModeText;
         set
         {
+            if (!DiagnosticModeOptions.Contains(value)) return;
             if (SetProperty(ref _selectedDiagnosticModeText, value))
             {
                 _controller.CancelCycle();
@@ -750,6 +751,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
             "Burst Loss" => DiagnosticMode.BurstLoss,
             "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
+            "Atraso (ms)" => DiagnosticMode.LatencyDelay,
+            "Drop (%)" => DiagnosticMode.PacketDrop,
             _ => DiagnosticMode.None
         };
 
@@ -780,7 +783,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 _controller.CancelCycle();
                 EnsureEngineRunning(startCapture: false);
-                _packetEngine.CycleDropEnabled = true; // Legacy loss remains usable without a timed profile.
                 _packetEngine.SetDropPercentage(DropPercentage);
                 var effect = _selectedDiagnosticModeText switch
                 {
@@ -788,6 +790,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     "Burst Loss" => DiagnosticMode.BurstLoss,
                     "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
                     "Atraso (ms)" => DiagnosticMode.LatencyDelay,
+                    "Drop (%)" => DiagnosticMode.PacketDrop,
                     _ => DiagnosticMode.None
                 };
                 bool started = _packetEngine.BeginLegacyGlobalContinuous(effect);
@@ -846,6 +849,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     "Burst Loss" => DiagnosticMode.BurstLoss,
                     "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
                     "Atraso (ms)" => DiagnosticMode.LatencyDelay,
+                    "Drop (%)" => DiagnosticMode.PacketDrop,
                     _ => DiagnosticMode.None
                 }
             });
@@ -871,20 +875,23 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         BurstLossPercentage = s.BurstLossPercentage;
         AsymmetricInboundLossPercentage = s.AsymmetricInboundPercentage;
         AsymmetricOutboundLossPercentage = s.AsymmetricOutboundPercentage;
-        SelectedDiagnosticModeText = s.DiagnosticMode switch
-        {
-            DiagnosticMode.OutboundFreeze => "Outbound Freeze",
-            DiagnosticMode.BurstLoss => "Burst Loss",
-            DiagnosticMode.AsymmetricLoss => "Asymmetric Loss",
-            DiagnosticMode.LatencyDelay => "Atraso (ms)",
-            _ => "Desativado"
-        };
         SelectedProcess = null;
         SelectedFilterModeText = s.FilterMode switch
         {
             FilterMode.AllTraffic => FilterModeOptions[1], FilterMode.ProcessPorts => FilterModeOptions[2],
             FilterMode.Custom => FilterModeOptions[3], FilterMode.LegacyGlobalOutbound => FilterModeOptions[4],
             _ => FilterModeOptions[0]
+        };
+        // Restore the explicit saved effect AFTER the selection's safe Lag default.
+        // Loading the same settings must not depend on which filter was selected before load.
+        SelectedDiagnosticModeText = s.DiagnosticMode switch
+        {
+            DiagnosticMode.OutboundFreeze => "Outbound Freeze",
+            DiagnosticMode.BurstLoss => "Burst Loss",
+            DiagnosticMode.AsymmetricLoss => "Asymmetric Loss",
+            DiagnosticMode.LatencyDelay => "Atraso (ms)",
+            DiagnosticMode.PacketDrop => "Drop (%)",
+            _ => "Desativado"
         };
         CustomFilterText = s.CustomFilter;
         ApplyFilterMode();
