@@ -150,12 +150,16 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
         await client.SendAsync(new byte[] { 81 }, 1);
         await WaitUntil(() => engine.UdpPacketsDropped > 0);
         Assert.False(receive.IsCompleted);
+        Assert.Equal(DesyncStateMachine.State.Active, controller.CurrentState);
+        long beforeUnrelatedProbe = engine.PacketsIntercepted;
         using (var unrelatedReceiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
         using (var unrelatedSender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
         {
             await unrelatedSender.SendAsync(new byte[] { 82 }, (IPEndPoint)unrelatedReceiver.Client.LocalEndPoint!);
             Assert.Equal(new byte[] { 82 }, (await unrelatedReceiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1))).Buffer);
         }
+        Assert.Equal(DesyncStateMachine.State.Active, controller.CurrentState);
+        Assert.Equal(beforeUnrelatedProbe, engine.PacketsIntercepted); // Other PID must not even enter NETWORK scope.
         controller.CancelCycle();
         await client.SendAsync(new byte[] { 83 }, 1);
         Assert.Equal(new byte[] { 83 }, (await receive.WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
