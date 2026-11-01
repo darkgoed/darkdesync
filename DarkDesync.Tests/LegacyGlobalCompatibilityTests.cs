@@ -18,6 +18,7 @@ public sealed class LegacyGlobalCompatibilityTests
     {
         engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
         Set(engine, "_stopping", false);
+        Set(engine, "_isRunning", true); // Model a capture epoch; sender remains the explicit test override.
         Set(engine, "_legacyPulseActive", true);
         Set(engine, "_legacyDeadlineTicks", expired ? long.MinValue : Stopwatch.GetTimestamp() + 800 * Stopwatch.Frequency / 1000);
         engine.StateMachine.TryActivate();
@@ -89,6 +90,20 @@ public sealed class LegacyGlobalCompatibilityTests
         Assert.False(engine.IsLegacyGlobalPulse); Assert.False(engine.IsRunning);
         DiagnosticModesTests.Capture(engine, protocol: 17);
         Assert.Equal(0, engine.PacketsDropped);
+    }
+
+    [Fact]
+    public async Task FailedGlobalReinjectionClosesLease_NotMerelyCountedAsWorking()
+    {
+        using var engine = DiagnosticModesTests.Engine(); ModelLease(engine);
+        engine.ActiveDiagnosticMode = DiagnosticMode.BurstLoss; engine.BurstLossPercentage = 0;
+        engine.SendOverride = (_, _, _) => false;
+        var stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.ErrorOccurred += e => stopped.TrySetResult(e);
+        DiagnosticModesTests.Capture(engine, protocol: 17);
+        Assert.Contains("reinjeção", await stopped.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.False(engine.IsLegacyGlobalPulse); Assert.Equal("false", engine.CurrentFilter);
+        Assert.Equal(1, engine.PacketsDropped); Assert.Equal(0, engine.PacketsPassedThrough);
     }
 
     [Fact]

@@ -82,6 +82,7 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
     [InlineData("cancel")]
     [InlineData("dispose")]
     [InlineData("error")]
+    [InlineData("start-log")]
     public async Task GlobalRestoresOnCancelShutdownAndControllerError(string action)
     {
         using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
@@ -91,9 +92,10 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
         engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
         using var controller = new DesyncController(NullLogger<DesyncController>.Instance, engine.StateMachine, engine);
         if (action == "error") controller.CountdownTick += (_, _) => throw new InvalidOperationException("test controller failure");
-        Assert.True(controller.TriggerCycle(DiagnosticMode.OutboundFreeze, legacyGlobal: true, globalConsent: true));
+        if (action == "start-log") controller.LogMessage += msg => { if (msg.StartsWith("[START]")) throw new InvalidOperationException("test start log failure"); };
+        Assert.Equal(action != "start-log", controller.TriggerCycle(DiagnosticMode.OutboundFreeze, legacyGlobal: true, globalConsent: true));
         Task<UdpReceiveResult>? held = null;
-        if (action != "error")
+        if (action != "error" && action != "start-log")
         {
             held = receiver.ReceiveAsync();
             await sender.SendAsync(new byte[] { 20 }, 1);

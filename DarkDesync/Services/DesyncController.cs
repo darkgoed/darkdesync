@@ -78,9 +78,18 @@ public sealed class DesyncController : IDisposable
             _activeCycleCts = new CancellationTokenSource();
             var ct = _activeCycleCts.Token;
             var target = TargetProcess;
-            LogMessage?.Invoke($"[START] {(legacyGlobal ? "GLOBAL todos os aplicativos" : "PID estrito")} • {profile.Name} • duração solicitada {profile.DurationMs} ms");
-            // Restoration must execute even if cancelled before scheduling.
-            _activeCycleTask = Task.Run(() => ExecuteCycleAsync(profile, target, ct, legacyGlobal));
+            try
+            {
+                LogMessage?.Invoke($"[START] {(legacyGlobal ? "GLOBAL todos os aplicativos" : "PID estrito")} • {profile.Name} • duração solicitada {profile.DurationMs} ms");
+                // Restoration must execute even if cancelled before scheduling.
+                _activeCycleTask = Task.Run(() => ExecuteCycleAsync(profile, target, ct, legacyGlobal));
+            }
+            catch
+            {
+                _activeCycleCts.Cancel();
+                RestoreTraffic();
+                return false;
+            }
             return true;
         }
     }

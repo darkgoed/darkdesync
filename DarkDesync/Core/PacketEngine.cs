@@ -1131,6 +1131,7 @@ public sealed class PacketEngine : IDisposable
         {
             Interlocked.Increment(ref _packetsDropped);
             _logger.LogWarning("Packet reinjection failed; counted as dropped, not delivered.");
+            if (_legacyPulseActive) RequestSafetyStop("GLOBAL: reinjeção falhou; pulso encerrado por segurança.");
         }
     }
 
