@@ -1,191 +1,58 @@
-using System.Text;
+using System.Net;
 using Microsoft.Extensions.Logging;
 
 namespace DarkDesync.Core;
 
-public enum FilterMode
-{
-    /// <summary>
-    /// Intercepts all outgoing packets (WinDivert "outbound").
-    /// Matches Clumsy's "all sending packets" preset.
-    /// Recommended for network testing and multiplayer desync simulation.
-    /// </summary>
-    Outbound,
+// Directions are always intersected with verified target connections by PacketEngine.
+public enum FilterMode { Outbound, AllTraffic, ProcessPorts, Custom }
 
-    /// <summary>
-    /// Intercepts all network traffic, both incoming and outgoing (WinDivert "true").
-    /// </summary>
-    AllTraffic,
-
-    /// <summary>
-    /// Filters by the active ports discovered for the target application.
-    /// If no ports are detected, automatically falls back to Outbound.
-    /// </summary>
-    ProcessPorts,
-
-    /// <summary>
-    /// Custom WinDivert filter expression entered by the user.
-    /// </summary>
-    Custom,
-
-    /// <summary>
-    /// Restricts strictly to authorized test endpoints and/or target application ports.
-    /// </summary>
-    AuthorizedEndpoint
-}
-
-/// <summary>
-/// Constructs and validates WinDivert filter expressions based on the chosen mode,
-/// discovered process ports, or custom filter strings.
-/// </summary>
 public sealed class FilterBuilder
 {
     private readonly ILogger<FilterBuilder> _logger;
-    private const int MaxPortClauses = 50;
+    public FilterBuilder(ILogger<FilterBuilder> logger) => _logger = logger;
 
-    public FilterBuilder(ILogger<FilterBuilder> logger)
+    public string GetFilter(FilterMode mode, HashSet<ushort>? localPorts = null, string? customExpression = null)
     {
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// Generates a validated WinDivert filter expression.
-    /// </summary>
-    public string GetFilter(
-        FilterMode mode,
-        HashSet<ushort>? localPorts = null,
-        string? customExpression = null,
-        string? authorizedEndpoint = null)
-    {
-        string rawFilter = mode switch
+        string raw = mode switch
         {
             FilterMode.Outbound => "outbound",
             FilterMode.AllTraffic => "true",
-            FilterMode.ProcessPorts => (localPorts != null && localPorts.Count > 0)
-                ? BuildPortFilter(localPorts)
-                : "outbound", // Fallback to outbound when no listening ports are found
-            FilterMode.Custom => !string.IsNullOrWhiteSpace(customExpression)
-                ? customExpression.Trim()
-                : "outbound",
-            FilterMode.AuthorizedEndpoint => BuildAuthorizedFilter(authorizedEndpoint, localPorts),
-            _ => "outbound"
+            FilterMode.ProcessPorts => localPorts == null ? "false" : BuildPortFilter(localPorts),
+            FilterMode.Custom => string.IsNullOrWhiteSpace(customExpression) ? "false" : customExpression.Trim(),
+            _ => "false"
         };
-
-        // Validate the expression with WinDivert
-        if (!WinDivertNative.ValidateFilter(rawFilter, WinDivertNative.Layer.Network, out string? error))
+        if (!WinDivertNative.ValidateFilter(raw, WinDivertNative.Layer.Network, out var error))
         {
-            _logger.LogWarning("Filter '{Raw}' is invalid ({Error}). Falling back to 'outbound'.", rawFilter, error);
-            return "outbound";
+            _logger.LogWarning("Invalid filter: {Error}; capture blocked", error);
+            return "false";
         }
-
-        return rawFilter;
+        return raw;
     }
 
-    /// <summary>
-    /// Builds a WinDivert filter restricted strictly to authorized test traffic
-    /// (authorized endpoint and/or discovered process ports), preserving third-party services.
-    /// </summary>
-    public string BuildAuthorizedFilter(string? authorizedEndpoint, HashSet<ushort>? localPorts = null)
+    internal static string BuildScopedFilter(IEnumerable<ProcessNetworkScanner.ProcessEndpoint> endpoints, string restriction)
     {
-        var sb = new StringBuilder();
-        string endpoint = (authorizedEndpoint ?? "127.0.0.1").Trim();
-        bool hasProcessPorts = localPorts != null && localPorts.Count > 0;
-
-        if (endpoint.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-            endpoint.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        var connections = endpoints.Distinct().ToArray();
+        if (connections.Length == 0 || connections.Length > 64 || connections.Any(e =>
+            (e.Protocol != 6 && e.Protocol != 17) || e.LocalPort == 0 || e.RemotePort == 0 || e.LocalAddr == 0 || e.RemoteAddr == 0))
+            return "false";
+        var clauses = connections.Select(e =>
         {
-            sb.Append("(loopback or (ip and (ip.SrcAddr == 127.0.0.1 or ip.DstAddr == 127.0.0.1)))");
-        }
-        else if (endpoint.Contains(':'))
-        {
-            var parts = endpoint.Split(':');
-            if (parts.Length == 2 && ushort.TryParse(parts[1], out ushort port))
-            {
-                string ipPart = parts[0];
-                if (!string.IsNullOrEmpty(ipPart) && System.Net.IPAddress.TryParse(ipPart, out _))
-                {
-                    sb.Append($"(ip and (ip.SrcAddr == {ipPart} or ip.DstAddr == {ipPart}) and (tcp.SrcPort == {port} or tcp.DstPort == {port} or udp.SrcPort == {port} or udp.DstPort == {port}))");
-                }
-                else
-                {
-                    sb.Append($"(tcp.SrcPort == {port} or tcp.DstPort == {port} or udp.SrcPort == {port} or udp.DstPort == {port})");
-                }
-            }
-            else
-            {
-                sb.Append("(loopback or (ip and (ip.SrcAddr == 127.0.0.1 or ip.DstAddr == 127.0.0.1)))");
-            }
-        }
-        else if (System.Net.IPAddress.TryParse(endpoint, out _))
-        {
-            sb.Append($"(ip and (ip.SrcAddr == {endpoint} or ip.DstAddr == {endpoint}))");
-        }
-        else
-        {
-            sb.Append("(loopback or (ip and (ip.SrcAddr == 127.0.0.1 or ip.DstAddr == 127.0.0.1)))");
-        }
-
-        if (hasProcessPorts)
-        {
-            var ports = localPorts!.Take(MaxPortClauses).ToList();
-            sb.Append(" or (");
-            for (int i = 0; i < ports.Count; i++)
-            {
-                if (i > 0) sb.Append(" or ");
-                ushort p = ports[i];
-                sb.Append($"tcp.SrcPort == {p} or tcp.DstPort == {p} or udp.SrcPort == {p} or udp.DstPort == {p}");
-            }
-            sb.Append(')');
-        }
-
-        string filter = sb.ToString();
-        if (!WinDivertNative.ValidateFilter(filter, WinDivertNative.Layer.Network, out _))
-        {
-            return "loopback";
-        }
-
-        return filter;
+            string local = new IPAddress(e.LocalAddr).ToString();
+            string remote = new IPAddress(e.RemoteAddr).ToString();
+            string protocol = e.Protocol == 6 ? "tcp" : "udp";
+            return $"({protocol} and ((outbound and ip.SrcAddr == {local} and {protocol}.SrcPort == {e.LocalPort} and ip.DstAddr == {remote} and {protocol}.DstPort == {e.RemotePort}) or (inbound and ip.DstAddr == {local} and {protocol}.DstPort == {e.LocalPort} and ip.SrcAddr == {remote} and {protocol}.SrcPort == {e.RemotePort})))";
+        });
+        // Outer scope cannot be escaped by an 'or true' in the custom restriction.
+        return $"ip and ({string.Join(" or ", clauses)}) and ({restriction})";
     }
 
-    /// <summary>
-    /// Builds a port-specific WinDivert filter.
-    /// </summary>
     public string BuildPortFilter(HashSet<ushort> localPorts)
     {
-        if (localPorts.Count == 0)
-            return "outbound";
-
-        var ports = localPorts.Take(MaxPortClauses).ToList();
-        var sb = new StringBuilder();
-
-        sb.Append("outbound and (");
-        for (int i = 0; i < ports.Count; i++)
-        {
-            if (i > 0)
-                sb.Append(" or ");
-
-            ushort port = ports[i];
-            sb.Append($"tcp.SrcPort == {port} or tcp.DstPort == {port} or udp.SrcPort == {port} or udp.DstPort == {port}");
-        }
-        sb.Append(')');
-
-        string filter = sb.ToString();
-        if (!WinDivertNative.ValidateFilter(filter, WinDivertNative.Layer.Network, out _))
-        {
-            return "outbound";
-        }
-
-        return filter;
+        if (localPorts.Count == 0 || localPorts.Count > 50 || localPorts.Contains(0)) return "false";
+        return "outbound and (" + string.Join(" or ", localPorts.OrderBy(p => p).Select(p =>
+            $"tcp.SrcPort == {p} or tcp.DstPort == {p} or udp.SrcPort == {p} or udp.DstPort == {p}")) + ")";
     }
-
-    /// <summary>
-    /// Legacy compatibility helper.
-    /// </summary>
-    public string BuildFilter(HashSet<ushort> localPorts)
-    {
-        return BuildPortFilter(localPorts);
-    }
-
+    public string BuildFilter(HashSet<ushort> localPorts) => BuildPortFilter(localPorts);
     public static string BuildAllTrafficFilter() => "true";
     public static string BuildOutboundFilter() => "outbound";
 }

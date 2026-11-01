@@ -1,167 +1,113 @@
+using System.Diagnostics;
 using System.IO;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Markup;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Xml.Linq;
+using System.Windows.Threading;
+using DarkDesync;
 using DarkDesync.Core;
 using DarkDesync.Services;
 using DarkDesync.ViewModels;
-using Microsoft.Extensions.Logging.Abstractions;
 
+// Windows/STA visual-tree and binding smoke test. No packet capture is started.
 internal static class Program
 {
-    private static readonly string Root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../"));
-    private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); Console.WriteLine("PASS " + message); }
     [STAThread]
-    public static int Main(string[] args)
+    private static int Main(string[] args)
     {
-        string settingsDirectory = Path.Combine(Path.GetTempPath(), "DarkDesyncUi-" + Guid.NewGuid());
+        if (args.Length == 3 && args[0] == "--udp-peer") return RunUdpPeer(args);
+        string temporary = Path.Combine(Path.GetTempPath(), "DarkDesync-UI-" + Guid.NewGuid());
+        var errors = new BindingErrors();
+        PresentationTraceSources.DataBindingSource.Listeners.Add(errors);
+        PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
         try
         {
-            // Safety guard BEFORE constructing an engine: never execute legacy auto-start.
-            var source = File.ReadAllText(Path.Combine(Root, "DarkDesync/ViewModels/MainViewModel.cs"));
-            var ctor = source.Substring(source.IndexOf("public MainViewModel("));
-            ctor = ctor[..ctor.IndexOf("public void EnsureEngineRunning")];
-            Check(!ctor[ctor.LastIndexOf("RefreshProcessList();")..].Contains("EnsureEngineRunning();"), "constructor has no automatic capture startup");
-            var apply = source.Substring(source.IndexOf("private void ApplyFilterMode()"));
-            apply = apply[..apply.IndexOf("private void ExecuteTriggerCycle")];
-            Check(!apply.Contains("EnsureEngineRunning();"), "filter edits cannot start capture");
-            var state = new DesyncStateMachine();
-            using var engine = new PacketEngine(NullLogger<PacketEngine>.Instance,
-                new ProcessNetworkScanner(NullLogger<ProcessNetworkScanner>.Instance),
-                new FilterBuilder(NullLogger<FilterBuilder>.Instance), new FlowTracker(NullLogger<FlowTracker>.Instance), state);
-            using var controller = new DesyncController(NullLogger<DesyncController>.Instance, state, engine);
-            using var vm = new MainViewModel(new ProcessService(NullLogger<ProcessService>.Instance),
-                new HotkeyService(NullLogger<HotkeyService>.Instance), controller, engine,
-                new SettingsStore(Path.Combine(settingsDirectory, "settings.json")));
-            Check(!engine.IsRunning && !vm.IsEngineRunning, "STA construction leaves real engine stopped without driver");
-            var timer = (System.Windows.Threading.DispatcherTimer)typeof(MainViewModel).GetField("_statsTimer", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!;
-            Check(!timer.IsEnabled, "hidden telemetry does not poll the UI");
-            vm.SelectedFilterModeText = "Personalizado"; vm.CustomFilterText = "inbound";
-            Check(!engine.IsRunning && !vm.IsEngineRunning, "editing custom filter leaves engine stopped");
-            var jitter = typeof(MainViewModel).GetProperty("ThrottleJitterMs");
-            Check(jitter != null, "jitter view-model property exists");
-            var engineJitter = typeof(PacketEngine).GetProperty("ThrottleJitterMs");
-            Check(engineJitter != null, "jitter engine property exists");
-            foreach (var (input, expected) in new[] { (-5, 0), (320, 320), (9999, 2000), (0, 0) })
+            var app = new App(); app.InitializeComponent();
+            var window = new MainWindow(new SettingsStore(Path.Combine(temporary, "settings.json")));
+            var vm = (MainViewModel)window.DataContext;
+            window.Show(); Pump();
+            Require(vm.SelectedHotkeyName == "Espaço", "Default global hotkey");
+            Require(!vm.IsEngineRunning, "Opening UI must not start capture");
+            var controls = Descendants(window).ToArray();
+            var mode = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
+            Require(controls.OfType<ComboBox>().Count(c => ReferenceEquals(c.ItemsSource, vm.AvailableHotkeys.Keys)) <= 1, "One hotkey picker");
+            foreach (string effect in new[] { "Outbound Freeze", "Burst Loss", "Asymmetric Loss" })
             {
-                jitter!.SetValue(vm, input);
-                Check((int)jitter.GetValue(vm)! == expected && (int)engineJitter!.GetValue(engine)! == expected, $"jitter {input} clamps/propagates to {expected}");
+                mode.SelectedItem = effect; Pump();
+                Require(vm.SelectedDiagnosticModeText == effect, "Mode selection binding: " + effect);
+                Require(vm.IsDiagnosticModeSelected && !vm.IsLegacyModeSelected, "Unified profile visibility");
+                var duration = controls.OfType<Slider>().Single(s => s.Maximum == 800 && s.Minimum == 0);
+                duration.Value = 175; Pump();
+                Require(vm.DiagnosticCycleDurationMs == 175, "Duration slider binding");
+                Require(duration.IsVisible, "Diagnostic duration visible inside profile");
+                Require(vm.IsBurstLossVisible == (effect == "Burst Loss"), "Burst controls visibility");
+                Require(vm.IsAsymmetricLossVisible == (effect == "Asymmetric Loss"), "Asymmetric controls visibility");
             }
-            Check(source.Contains("_packetEngine.ThrottleJitterMs = ThrottleJitterMs;"), "explicit startup synchronizes jitter");
-            // Exercise startup synchronization without permitting a native Start call.
-            // A temporary internal running sentinel takes only the already-running branch;
-            // no handle, worker, driver or traffic is created. Restore before disposal.
-            jitter!.SetValue(vm, 610);
-            engineJitter!.SetValue(engine, 12);
-            var running = typeof(PacketEngine).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            try
-            {
-                running.SetValue(engine, true);
-                vm.EnsureEngineRunning();
-                Check((int)engineJitter.GetValue(engine)! == 610, "EnsureEngineRunning reapplies jitter without native Start");
-            }
-            finally { running.SetValue(engine, false); }
-            jitter.SetValue(vm, 0);
-            if (args.Contains("--render")) Render(vm);
+            vm.BurstLossPercentage = 37; vm.AsymmetricInboundLossPercentage = 12; vm.AsymmetricOutboundLossPercentage = 84;
+            vm.SelectedHotkeyName = "F2"; vm.DiagnosticCycleDurationMs = 800;
+            vm.SaveSettingsCommand.Execute(null);
+            vm.ResetSettingsCommand.Execute(null); Pump();
+            Require(vm.DiagnosticCycleDurationMs == 150, "Default 150 ms");
+            vm.LoadSettingsCommand.Execute(null); Pump();
+            Require(vm.DiagnosticCycleDurationMs == 800 && vm.SelectedDiagnosticModeText == "Asymmetric Loss", "Mode/duration roundtrip");
+            Require(vm.BurstLossPercentage == 37 && vm.AsymmetricInboundLossPercentage == 12 && vm.AsymmetricOutboundLossPercentage == 84, "Loss percentages roundtrip");
+            Require(vm.SelectedHotkeyName == "F2", "Shared hotkey roundtrip");
+            vm.DiagnosticCycleDurationMs = 0; vm.TriggerCycleCommand.Execute(null); Pump();
+            Require(!vm.IsEngineRunning, "Zero-duration pulse must not start capture");
+            Require(controls.OfType<TextBox>().All(t => !t.Text.Contains("127.0.0.1")), "No manual endpoint input");
+            Require(controls.OfType<Button>().Count(b => ReferenceEquals(b.Command, vm.TriggerCycleCommand)) == 1, "Exactly one pulse button");
+            Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
+            window.Close(); Pump();
+            Console.WriteLine("PASS: WPF visual tree, mode/duration bindings, loss controls, shared settings, zero-duration, no duplicate pulse UI; no live driver or physical keyboard claim.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
-        finally { if (Directory.Exists(settingsDirectory)) Directory.Delete(settingsDirectory, true); }
+        finally
+        {
+            PresentationTraceSources.DataBindingSource.Listeners.Remove(errors);
+            if (Directory.Exists(temporary)) Directory.Delete(temporary, true);
+        }
     }
+
+    // Driver-test child process, not another app/build. No WPF, hook or capture.
+    // Loopback-only echo endpoint lets integration tests select a real OTHER PID.
+    private static int RunUdpPeer(string[] args)
+    {
+        using var peer = new System.Net.Sockets.UdpClient(System.Net.Sockets.AddressFamily.InterNetwork);
+        bool shared = args[2] == "shared";
+        peer.ExclusiveAddressUse = !shared;
+        if (shared) peer.Client.SetSocketOption(System.Net.Sockets.SocketOptionLevel.Socket,
+            System.Net.Sockets.SocketOptionName.ReuseAddress, true);
+        peer.Client.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, int.Parse(args[1])));
+        Console.WriteLine(((System.Net.IPEndPoint)peer.Client.LocalEndPoint!).Port);
+        Console.Out.Flush();
+        while (true)
+        {
+            var remote = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+            byte[] bytes = peer.Receive(ref remote);
+            peer.Send(bytes, bytes.Length, remote);
+        }
+    }
+
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
     {
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {
-            var child = VisualTreeHelper.GetChild(root, i);
-            yield return child;
-            foreach (var nested in Descendants(child)) yield return nested;
+            var child = VisualTreeHelper.GetChild(root, i); yield return child;
+            foreach (var descendant in Descendants(child)) yield return descendant;
         }
     }
-    private static bool engineMode(MainViewModel vm) => vm.SelectedThrottleMode == vm.ThrottleModeOptions[1];
-    private static void Render(MainViewModel vm)
+    private static void Pump()
     {
-        // Parse the production XAML without x:Class: no MainWindow constructor,
-        // native HWND, Loaded hook, global key registration or driver initialization.
-        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        var theme = (ResourceDictionary)XamlReader.Load(File.OpenRead(Path.Combine(Root, "DarkDesync/Themes/DarkTheme.xaml")));
-        app.Resources.MergedDictionaries.Add(theme);
-        var document = XDocument.Load(Path.Combine(Root, "DarkDesync/MainWindow.xaml"));
-        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
-        document.Root!.Attribute(x + "Class")!.Remove();
-        // Strip code-behind events only; all markup and bindings remain real.
-        foreach (var element in document.Descendants())
-            foreach (var attr in element.Attributes().Where(a => new[] { "Click", "MouseLeftButtonDown" }.Contains(a.Name.LocalName)).ToList()) attr.Remove();
-        var window = (Window)XamlReader.Parse(document.ToString());
-        window.DataContext = vm;
-        var content = (FrameworkElement)window.Content;
-        window.Content = null; // off-screen, not shown and cannot fire Loaded hooks
-        content.DataContext = vm;
-        content.Resources.MergedDictionaries.Add(theme);
-        foreach (var type in new[] { typeof(ComboBox), typeof(CheckBox), typeof(TextBox), typeof(Slider), typeof(TabControl), typeof(TabItem), typeof(GridViewColumnHeader) })
-            Check(theme.Contains(type), "custom dark template: " + type.Name);
-        var size = new Size(window.Width, window.Height);
-        content.Measure(size); content.Arrange(new Rect(size)); content.UpdateLayout();
-        var sliders = Descendants(content).OfType<Slider>().ToList();
-        Check(sliders.Count == 10, "ten configuration sliders including diagnostic modes, no metric panels");
-        var jitterSlider = sliders.Single(s => System.Windows.Data.BindingOperations.GetBinding(s, Slider.ValueProperty)?.Path.Path == "ThrottleJitterMs");
-        jitterSlider.Value = 470;
-        Check(vm.ThrottleJitterMs == 470, "real XAML jitter slider updates view-model two-way");
-        vm.ThrottleJitterMs = 230;
-        Check(jitterSlider.Value == 230, "view-model jitter updates real XAML slider");
-        vm.ThrottleJitterMs = 0;
-        Check(!document.ToString().Contains("Countdown") && !document.ToString().Contains("{Binding Packets") && !document.ToString().Contains("{Binding History}"), "no countdown, counters or metric history bindings");
-        var combos = Descendants(content).OfType<ComboBox>().ToList();
-        // Processes combo is populated at runtime; in headless rendering no GUI processes are visible so Count=0 is expected.
-        Check(combos.Count == 7 && combos.Where(c => System.Windows.Data.BindingOperations.GetBinding(c, ComboBox.ItemsSourceProperty)?.Path.Path != "Processes").All(c => c.Items.Count > 0), "target, filter, hotkey, throttle mode and diagnostic hotkey lists resolve real items bindings");
-        var mode = combos.Single(c => System.Windows.Data.BindingOperations.GetBinding(c, ComboBox.SelectedItemProperty)?.Path.Path == "SelectedThrottleMode");
-        mode.SelectedItem = vm.ThrottleModeOptions[1];
-        Check(engineMode(vm), "real mode selector updates view-model");
-        mode.SelectedItem = vm.ThrottleModeOptions[0];
-        var profile = Descendants(content).OfType<CheckBox>().Single(c => System.Windows.Data.BindingOperations.GetBinding(c, CheckBox.IsCheckedProperty)?.Path.Path == "CycleProfileEnabled");
-        profile.IsChecked = false; Check(!vm.CycleProfileEnabled, "real cycle profile toggle updates view-model");
-        profile.IsChecked = true;
-        var numbers = Descendants(content).OfType<TextBox>().Where(t => System.Windows.Data.BindingOperations.GetBinding(t, TextBox.TextProperty)?.Path.Path != "CustomFilterText").ToList();
-        Check(numbers.Count == 11, "eleven editable settings alongside sliders");
-        foreach (var combo in combos)
-        {
-            var popup = (System.Windows.Controls.Primitives.Popup)combo.Template.FindName("PART_Popup", combo);
-            var surface = (Border)popup.Child;
-            Check(((SolidColorBrush)surface.Background).Color == (Color)ColorConverter.ConvertFromString("#20232D"), "real ComboBox dropdown uses dark surface");
-        }
-        Check(Descendants(content).OfType<Button>().Count(b => b.Command != null) == 13, "capture, trigger, cancel, refresh, presets, diagnostic triggers and three settings commands resolve");
-        Check(Descendants(content).OfType<Button>().Any(b => ReferenceEquals(b.Command, vm.TriggerFreezeCommand)), "real freeze button binds command");
-        Check(Descendants(content).OfType<Button>().Any(b => ReferenceEquals(b.Command, vm.TriggerBurstCommand)), "real burst button binds command");
-        Check(Descendants(content).OfType<Button>().Any(b => ReferenceEquals(b.Command, vm.TriggerAsymmetricCommand)), "real asymmetric button binds command");
-        Check(Descendants(content).OfType<Button>().Any(b => ReferenceEquals(b.Command, vm.SaveSettingsCommand)), "real save button binds save command");
-        var saveButton = Descendants(content).OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.SaveSettingsCommand));
-        var saveOrigin = saveButton.TransformToAncestor(content).Transform(new Point());
-        Check(saveOrigin.Y >= 0 && saveOrigin.Y + saveButton.ActualHeight < size.Height - 36, "save button visible without scrolling");
-        var durationInput = numbers.Single(t => System.Windows.Data.BindingOperations.GetBinding(t, TextBox.TextProperty)?.Path.Path == "CustomDurationMs");
-        durationInput.Text = "1250"; durationInput.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
-        Check(vm.CustomDurationMs == 1250, "numeric duration input updates real setting");
-        vm.CustomDurationMs = 800;
-        saveButton.Command.Execute(null);
-        Check(File.Exists(vm.SettingsPath) && new SettingsStore(vm.SettingsPath).Load().DurationMs == 800, "real save button command writes verified isolated JSON");
-        vm.ThrottleJitterMs = 600;
-        Descendants(content).OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.LoadSettingsCommand)).Command.Execute(null);
-        Check(vm.ThrottleJitterMs == 0 && !vm.IsEngineRunning, "real load button command restores JSON without capture");
-        var expander = Descendants(content).OfType<Expander>().Single();
-        expander.IsExpanded = true; content.UpdateLayout();
-        Check(Descendants(expander).OfType<ListBox>().Single().Items.Count == vm.Logs.Count, "diagnostic expander binds real event logs");
-        expander.IsExpanded = false;
-        vm.SelectedFilterModeText = vm.FilterModeOptions[0];
-        vm.SelectedProcess = vm.Processes.FirstOrDefault();
-        content.Measure(size); content.Arrange(new Rect(size)); content.UpdateLayout();
-        var bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(content);
-        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        string path = Path.Combine(Root, "DarkDesync/visual-verification.png");
-        using (var stream = File.Create(path)) encoder.Save(stream);
-        Check(File.Exists(path) && new FileInfo(path).Length > 10000, "real WPF render saved: " + path);
-        window.Close(); app.Shutdown();
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
+    private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
+    private sealed class BindingErrors : TraceListener
+    {
+        public List<string> Messages { get; } = [];
+        public override void Write(string? message) { if (!string.IsNullOrWhiteSpace(message)) Messages.Add(message); }
+        public override void WriteLine(string? message) => Write(message);
     }
 }

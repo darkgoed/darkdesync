@@ -14,10 +14,10 @@ public class FilterBuilderTests
     }
 
     [Fact]
-    public void BuildFilter_WithNoPorts_FallsBackToOutbound()
+    public void BuildFilter_WithNoPorts_FailsClosed()
     {
         var filter = _builder.BuildFilter(new HashSet<ushort>());
-        Assert.Equal("outbound", filter);
+        Assert.Equal("false", filter);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class FilterBuilderTests
     }
 
     [Fact]
-    public void BuildFilter_WithExcessivePorts_CapsToMaxPorts()
+    public void BuildFilter_WithExcessivePorts_FailsClosedRatherThanTruncating()
     {
         var ports = new HashSet<ushort>();
         for (ushort i = 1000; i < 1100; i++)
@@ -67,7 +67,19 @@ public class FilterBuilderTests
         }
 
         var filter = _builder.BuildFilter(ports);
-        Assert.NotEmpty(filter);
-        Assert.NotEqual("false", filter);
+        Assert.Equal("false", filter);
+    }
+
+    [Fact]
+    public void ScopedFilter_NeverLosesExactTupleToBroadCustomRestriction()
+    {
+        string filter = FilterBuilder.BuildScopedFilter([DiagnosticModesTests.Endpoint()], "false or true");
+        Assert.StartsWith("ip and (", filter);
+        Assert.Contains("ip.SrcAddr == 127.0.0.1 and tcp.SrcPort == 40000", filter);
+        Assert.Contains("ip.DstAddr == 127.0.0.2 and tcp.DstPort == 443", filter);
+        Assert.EndsWith("and (false or true)", filter);
+        Assert.Equal("false", FilterBuilder.BuildScopedFilter([], "true"));
+        Assert.Equal("false", FilterBuilder.BuildScopedFilter([DiagnosticModesTests.Endpoint() with { Protocol = 17, RemotePort = 0 }], "true"));
+        Assert.Equal("false", FilterBuilder.BuildScopedFilter(Enumerable.Range(1, 65).Select(p => DiagnosticModesTests.Endpoint((ushort)p)), "true"));
     }
 }

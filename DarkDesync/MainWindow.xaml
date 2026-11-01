@@ -19,90 +19,73 @@
   <Grid Grid.Row="1" Margin="24,22,24,18">
    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
    <Grid Margin="0,0,0,22"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-    <StackPanel><TextBlock Text="Controle de tráfego" FontSize="26" FontWeight="SemiBold" /><TextBlock Text="Perda e variação de tempo. Sem distrações." Style="{StaticResource HelpText}" Margin="0,6,0,0" /></StackPanel>
+    <StackPanel><TextBlock Text="Controle de tráfego" FontSize="26" FontWeight="SemiBold" /><TextBlock Text="Perda e variação de tempo em ambientes autorizados." Style="{StaticResource HelpText}" Margin="0,6,0,0" /></StackPanel>
     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
      <Border Background="#252331" CornerRadius="7" Padding="12,10" Margin="0,0,10,0"><StackPanel Orientation="Horizontal"><Ellipse Width="7" Height="7" Fill="{Binding StatusColorBrush}" Margin="0,0,8,0" /><TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" /></StackPanel></Border>
      <Button Content="{Binding EngineToggleText}" Command="{Binding ToggleEngineCommand}" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" />
-     <Button Content="Disparar ciclo  →" Command="{Binding TriggerCycleCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" />
+     <Button Content="Pulso manual →" Focusable="False" Command="{Binding TriggerCycleCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" />
      <Button Content="Cancelar" Command="{Binding CancelCycleCommand}" Style="{StaticResource DangerButton}" />
     </StackPanel>
    </Grid>
    <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0"><StackPanel>
      <Border Style="{StaticResource CardPanel}"><StackPanel>
-      <TextBlock Text="01  /  ALVO E CAPTURA" Style="{StaticResource SectionLabel}" />
-      <TextBlock Text="Aplicação-alvo" FontWeight="SemiBold" /><TextBlock Text="Selecione uma janela. O isolamento por portas depende do modo de filtro abaixo." Style="{StaticResource HelpText}" />
+      <TextBlock Text="01 / ALVO E CAPTURA" Style="{StaticResource SectionLabel}" />
+      <TextBlock Text="Aplicação-alvo" FontWeight="SemiBold" /><TextBlock Text="TCP/IPv4 ou fluxo UDP/IPv4 observado por PID e socket exclusivo. Para UDP, inicie para armar a observação, gere um novo fluxo e tente iniciar novamente. Sem prova segura ou em IPv6, bloqueia." Style="{StaticResource HelpText}" />
       <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions><ComboBox ItemsSource="{Binding Processes}" SelectedItem="{Binding SelectedProcess}" DisplayMemberPath="DisplayName" ToolTip="Aplicação-alvo" /><Button Grid.Column="1" Content="↻" FontSize="19" Padding="0" Margin="6,0,0,0" Style="{StaticResource OutlineButton}" Command="{Binding RefreshProcessesCommand}" ToolTip="Atualizar processos" /></Grid>
       <CheckBox Content="Atalho apenas com o alvo em foco" IsChecked="{Binding OnlyTargetForeground}" Margin="0,0,0,22" />
       <TextBlock Text="Filtro de rede" FontWeight="SemiBold" Margin="0,0,0,8" /><ComboBox ItemsSource="{Binding FilterModeOptions}" SelectedItem="{Binding SelectedFilterModeText}" FontSize="11" ToolTip="{Binding SelectedFilterModeText}" />
-      <TextBox Text="{Binding CustomFilterText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsCustomFilterVisible, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0" ToolTip="Expressão de filtro WinDivert" />
-      <TextBlock Text="A captura começa somente por sua ação. Alterar um filtro não inicia o motor parado." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
+      <TextBox Text="{Binding CustomFilterText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsCustomFilterVisible, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0" ToolTip="Restrição adicional WinDivert; nunca amplia o alvo" />
+      <TextBlock Text="Alterar alvo/filtro para e restaura a captura. Novas conexões exigem reinício explícito. Para perda assimétrica, selecione entrada + saída." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
      </StackPanel></Border>
      <Border Style="{StaticResource CardPanel}" Margin="0,16,0,0"><StackPanel>
-      <TextBlock Text="02  /  PERFIL DO CICLO" Style="{StaticResource SectionLabel}" />
+      <TextBlock Text="02 / PERFIL DO CICLO" Style="{StaticResource SectionLabel}" />
       <CheckBox Content="Ativar perfil do ciclo" IsChecked="{Binding CycleProfileEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
-      <TextBlock Text="Desligado: o ciclo pode atuar só com retenção e jitter. A duração abaixo também vale para esse ciclo." Style="{StaticResource HelpText}" Margin="0,0,0,14" />
-      <UniformGrid Columns="3" Margin="0,0,0,18">
-       <Button Content="Fraco · 800 ms" Command="{Binding SelectProfileCommand}" CommandParameter="{Binding Profiles[0]}" Style="{StaticResource OutlineButton}" Padding="5,10" Margin="0,0,4,0" />
-       <Button Content="Médio · 2000 ms" Command="{Binding SelectProfileCommand}" CommandParameter="{Binding Profiles[1]}" Style="{StaticResource OutlineButton}" Padding="5,10" Margin="2,0" />
-       <Button Content="Forte · 5000 ms" Command="{Binding SelectProfileCommand}" CommandParameter="{Binding Profiles[2]}" Style="{StaticResource OutlineButton}" Padding="5,10" Margin="4,0,0,0" />
-      </UniformGrid>
-      <Grid><TextBlock Text="Duração · ms" VerticalAlignment="Center" /><TextBox Text="{Binding CustomDurationMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" Height="30" Padding="8,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" ToolTip="50 a 10000 ms • confirme com Tab" /></Grid>
-      <Slider Minimum="50" Maximum="10000" Value="{Binding CustomDurationMs, Mode=TwoWay}" SmallChange="50" LargeChange="500" Margin="0,6,0,16" />
-      <Grid><TextBlock Text="Perda de pacotes · %" VerticalAlignment="Center" /><TextBox Text="{Binding DropPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" Height="30" Padding="8,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" ToolTip="0 a 100%" /></Grid>
-      <Slider Minimum="0" Maximum="100" Value="{Binding DropPercentage, Mode=TwoWay}" SmallChange="5" LargeChange="10" Margin="0,6,0,0" />
+      <TextBlock Text="Efeito do perfil" FontWeight="SemiBold" Margin="0,0,0,8" />
+      <ComboBox ItemsSource="{Binding DiagnosticModeOptions}" SelectedItem="{Binding SelectedDiagnosticModeText}" Margin="0,0,0,12" ToolTip="Desativado mantém a perda legada do perfil" />
+      <StackPanel Visibility="{Binding IsLegacyModeSelected, Converter={StaticResource BoolVisibility}}">
+       <UniformGrid Columns="3" Margin="0,0,0,18">
+        <Button Content="Fraco · 800 ms" Command="{Binding SelectProfileCommand}" CommandParameter="{Binding Profiles[0]}" Style="{StaticResource OutlineButton}" Padding="5,10" Margin="0,0,4,0" />
+        <Button Content="Médio · 2000 ms" Command="{Binding SelectProfileCommand}" CommandParameter="{Binding Profiles[1]}" Style="{StaticResource OutlineButton}" Padding="5,10" Margin="2,0" />
+        <Button Content="Forte · 5000 ms" Command="{Binding SelectProfileCommand}" CommandParameter="{Binding Profiles[2]}" Style="{StaticResource OutlineButton}" Padding="5,10" Margin="4,0,0,0" />
+       </UniformGrid>
+       <Grid><TextBlock Text="Duração legada · ms" /><TextBox Text="{Binding CustomDurationMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
+       <Slider Minimum="50" Maximum="10000" Value="{Binding CustomDurationMs, Mode=TwoWay}" Margin="0,6,0,16" />
+       <Grid><TextBlock Text="Perda de pacotes · %" /><TextBox Text="{Binding DropPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
+       <Slider Minimum="0" Maximum="100" Value="{Binding DropPercentage, Mode=TwoWay}" Margin="0,6,0,0" />
+      </StackPanel>
+      <StackPanel Visibility="{Binding IsDiagnosticModeSelected, Converter={StaticResource BoolVisibility}}">
+       <Grid><TextBlock Text="Duração do pulso · ms" /><TextBox Text="{Binding DiagnosticCycleDurationMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" ToolTip="0 a 800 ms; padrão 150 ms; 0 desativa o pulso" /></Grid>
+       <Slider Minimum="0" Maximum="800" Value="{Binding DiagnosticCycleDurationMs, Mode=TwoWay}" SmallChange="5" LargeChange="50" Margin="0,6,0,12" />
+       <TextBlock Text="Freeze retém somente a saída e libera ao terminar. Perdas substituem o efeito legado durante o pulso." Style="{StaticResource HelpText}" />
+      </StackPanel>
+      <StackPanel Visibility="{Binding IsBurstLossVisible, Converter={StaticResource BoolVisibility}}">
+       <Grid><TextBlock Text="Perda da rajada · %" /><TextBox Text="{Binding BurstLossPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
+       <Slider Minimum="0" Maximum="100" Value="{Binding BurstLossPercentage, Mode=TwoWay}" Margin="0,6,0,0" />
+      </StackPanel>
+      <StackPanel Visibility="{Binding IsAsymmetricLossVisible, Converter={StaticResource BoolVisibility}}">
+       <Grid><TextBlock Text="Perda de entrada · %" /><TextBox Text="{Binding AsymmetricInboundLossPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
+       <Slider Minimum="0" Maximum="100" Value="{Binding AsymmetricInboundLossPercentage, Mode=TwoWay}" Margin="0,6,0,12" />
+       <Grid><TextBlock Text="Perda de saída · %" /><TextBox Text="{Binding AsymmetricOutboundLossPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
+       <Slider Minimum="0" Maximum="100" Value="{Binding AsymmetricOutboundLossPercentage, Mode=TwoWay}" Margin="0,6,0,0" />
+      </StackPanel>
      </StackPanel></Border>
-      <Border Style="{StaticResource CardPanel}" Margin="0,16,0,0"><StackPanel>
-       <TextBlock Text="03  /  DIAGNÓSTICO DE REDE (AUTORIZADO)" Style="{StaticResource SectionLabel}" />
-       <TextBlock Text="Endpoint autorizado" FontWeight="SemiBold" /><TextBlock Text="Restrito a testes sob seu controle. Jogos e serviços de terceiros são preservados." Style="{StaticResource HelpText}" />
-       <TextBox Text="{Binding AuthorizedEndpoint, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" ToolTip="Ex: 127.0.0.1, localhost, ou IP:Porta de teste" />
-       <Grid><TextBlock Text="Ciclo de diagnóstico · ms" VerticalAlignment="Center" /><TextBox Text="{Binding DiagnosticCycleDurationMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" Height="30" Padding="8,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" ToolTip="100 a 200 ms (padrão 150 ms)" /></Grid>
-       <Slider Minimum="100" Maximum="200" Value="{Binding DiagnosticCycleDurationMs, Mode=TwoWay}" SmallChange="5" LargeChange="25" Margin="0,6,0,14" />
-
-       <!-- 1. Outbound Freeze -->
-       <Border Background="#1C1E27" CornerRadius="8" Padding="12,10" Margin="0,0,0,10"><StackPanel>
-        <Grid><TextBlock Text="1. Outbound Freeze" FontWeight="SemiBold" VerticalAlignment="Center" /><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><TextBlock Text="Atalho:" VerticalAlignment="Center" Margin="0,0,6,0" Style="{StaticResource HelpText}" /><ComboBox ItemsSource="{Binding AvailableHotkeys.Keys}" SelectedItem="{Binding SelectedFreezeHotkey}" Width="85" Height="30" Padding="6,2" FontSize="11" /></StackPanel></Grid>
-        <TextBlock Text="Interrompe temporariamente o envio de pacotes de teste." Style="{StaticResource HelpText}" Margin="0,4,0,8" />
-        <Button Content="Freeze Outbound (150ms)  →" Command="{Binding TriggerFreezeCommand}" Style="{StaticResource OutlineButton}" HorizontalAlignment="Stretch" Padding="8,8" />
-       </StackPanel></Border>
-
-       <!-- 2. Burst Loss -->
-       <Border Background="#1C1E27" CornerRadius="8" Padding="12,10" Margin="0,0,0,10"><StackPanel>
-        <Grid><TextBlock Text="2. Burst Loss" FontWeight="SemiBold" VerticalAlignment="Center" /><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><TextBlock Text="Atalho:" VerticalAlignment="Center" Margin="0,0,6,0" Style="{StaticResource HelpText}" /><ComboBox ItemsSource="{Binding AvailableHotkeys.Keys}" SelectedItem="{Binding SelectedBurstHotkey}" Width="85" Height="30" Padding="6,2" FontSize="11" /></StackPanel></Grid>
-        <TextBlock Text="Simula perdas intermitentes com percentual configurável." Style="{StaticResource HelpText}" Margin="0,4,0,8" />
-        <Grid><TextBlock Text="Perda da rajada · %" VerticalAlignment="Center" /><TextBox Text="{Binding BurstLossPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="65" Height="28" Padding="6,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" /></Grid>
-        <Slider Minimum="0" Maximum="100" Value="{Binding BurstLossPercentage, Mode=TwoWay}" SmallChange="5" LargeChange="10" Margin="0,4,0,8" />
-        <Button Content="Disparar Burst Loss  →" Command="{Binding TriggerBurstCommand}" Style="{StaticResource OutlineButton}" HorizontalAlignment="Stretch" Padding="8,8" />
-       </StackPanel></Border>
-
-       <!-- 3. Asymmetric Loss -->
-       <Border Background="#1C1E27" CornerRadius="8" Padding="12,10"><StackPanel>
-        <Grid><TextBlock Text="3. Asymmetric Loss" FontWeight="SemiBold" VerticalAlignment="Center" /><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><TextBlock Text="Atalho:" VerticalAlignment="Center" Margin="0,0,6,0" Style="{StaticResource HelpText}" /><ComboBox ItemsSource="{Binding AvailableHotkeys.Keys}" SelectedItem="{Binding SelectedAsymmetricHotkey}" Width="85" Height="30" Padding="6,2" FontSize="11" /></StackPanel></Grid>
-        <TextBlock Text="Configura perdas independentes de entrada e saída." Style="{StaticResource HelpText}" Margin="0,4,0,8" />
-        <Grid><TextBlock Text="Entrada (Inbound) · %" VerticalAlignment="Center" /><TextBox Text="{Binding AsymmetricInboundLossPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="65" Height="28" Padding="6,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" /></Grid>
-        <Slider Minimum="0" Maximum="100" Value="{Binding AsymmetricInboundLossPercentage, Mode=TwoWay}" SmallChange="5" LargeChange="10" Margin="0,4,0,6" />
-        <Grid><TextBlock Text="Saída (Outbound) · %" VerticalAlignment="Center" /><TextBox Text="{Binding AsymmetricOutboundLossPercentage, Mode=TwoWay, ValidatesOnExceptions=True}" Width="65" Height="28" Padding="6,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" /></Grid>
-        <Slider Minimum="0" Maximum="100" Value="{Binding AsymmetricOutboundLossPercentage, Mode=TwoWay}" SmallChange="5" LargeChange="10" Margin="0,4,0,8" />
-        <Button Content="Disparar Asymmetric Loss  →" Command="{Binding TriggerAsymmetricCommand}" Style="{StaticResource OutlineButton}" HorizontalAlignment="Stretch" Padding="8,8" />
-       </StackPanel></Border>
-
-      </StackPanel></Border>
     </StackPanel></ScrollViewer>
     <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0"><StackPanel>
      <Border Style="{StaticResource CardPanel}"><StackPanel>
-      <Grid Margin="0,0,0,10"><TextBlock Text="04  /  RETENÇÃO E JITTER" Style="{StaticResource SectionLabel}" Margin="0" /><CheckBox Content="Ativar throttle" IsChecked="{Binding ThrottleEnabled, Mode=TwoWay}" HorizontalAlignment="Right" /></Grid>
+      <Grid Margin="0,0,0,10"><TextBlock Text="03 / RETENÇÃO E JITTER" Style="{StaticResource SectionLabel}" Margin="0" /><CheckBox Content="Ativar throttle" IsChecked="{Binding ThrottleEnabled, Mode=TwoWay}" HorizontalAlignment="Right" /></Grid>
       <ComboBox ItemsSource="{Binding ThrottleModeOptions}" SelectedItem="{Binding SelectedThrottleMode, Mode=TwoWay}" Margin="0,0,0,10" />
-      <TextBlock Text="No atalho: dura o ciclo. Contínuo: atua enquanto a captura estiver ligada, sem iniciar automaticamente. Retenção substitui a perda do perfil; não limita banda." Style="{StaticResource HelpText}" Margin="0,0,0,14" />
-      <Grid><TextBlock Text="Retenção · ms" VerticalAlignment="Center" /><TextBox Text="{Binding ThrottleTimeframeMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" Height="30" Padding="8,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" ToolTip="10 a 3000 ms" /></Grid><Slider Minimum="10" Maximum="3000" Value="{Binding ThrottleTimeframeMs, Mode=TwoWay}" SmallChange="50" LargeChange="200" Margin="0,6,0,12" />
-      <Grid><TextBlock Text="Chance de retenção · %" VerticalAlignment="Center" /><TextBox Text="{Binding ThrottleChance, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" Height="30" Padding="8,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" ToolTip="0 a 100%" /></Grid><Slider Minimum="0" Maximum="100" Value="{Binding ThrottleChance, Mode=TwoWay}" SmallChange="5" LargeChange="10" Margin="0,6,0,12" />
-      <Grid><TextBlock Text="Espaçamento · ms" VerticalAlignment="Center" /><TextBox Text="{Binding ThrottleReleaseDelayMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" Height="30" Padding="8,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" ToolTip="0 a 200 ms" /></Grid><Slider Minimum="0" Maximum="200" Value="{Binding ThrottleReleaseDelayMs, Mode=TwoWay}" SmallChange="1" LargeChange="5" Margin="0,6,0,12" ToolTip="0 ms = rajada; valores maiores espaçam os pacotes liberados, sem garantir banda." />
-      <Grid><TextBlock Text="Jitter de retenção · ±ms" VerticalAlignment="Center" /><TextBox Text="{Binding ThrottleJitterMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" Height="30" Padding="8,0" VerticalContentAlignment="Center" HorizontalAlignment="Right" ToolTip="0 a 2000 ms" /></Grid><Slider Minimum="0" Maximum="2000" Value="{Binding ThrottleJitterMs, Mode=TwoWay}" SmallChange="10" LargeChange="100" Margin="0,6,0,0" ToolTip="Variação aleatória por pacote entre −jitter e +jitter sobre a retenção (nunca abaixo de 0 ms). 0 ms desativa." />
+      <TextBlock Text="No atalho: dura o ciclo. Contínuo: atua enquanto a captura estiver ligada. Os três efeitos do perfil têm prioridade durante o pulso; depois retorna a retenção contínua, se habilitada." Style="{StaticResource HelpText}" Margin="0,0,0,14" />
+      <Grid><TextBlock Text="Retenção · ms" /><TextBox Text="{Binding ThrottleTimeframeMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid><Slider Minimum="10" Maximum="3000" Value="{Binding ThrottleTimeframeMs, Mode=TwoWay}" Margin="0,6,0,12" />
+      <Grid><TextBlock Text="Chance de retenção · %" /><TextBox Text="{Binding ThrottleChance, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid><Slider Minimum="0" Maximum="100" Value="{Binding ThrottleChance, Mode=TwoWay}" Margin="0,6,0,12" />
+      <Grid><TextBlock Text="Espaçamento · ms" /><TextBox Text="{Binding ThrottleReleaseDelayMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid><Slider Minimum="0" Maximum="200" Value="{Binding ThrottleReleaseDelayMs, Mode=TwoWay}" Margin="0,6,0,12" />
+      <Grid><TextBlock Text="Jitter de retenção · ±ms" /><TextBox Text="{Binding ThrottleJitterMs, Mode=TwoWay, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid><Slider Minimum="0" Maximum="2000" Value="{Binding ThrottleJitterMs, Mode=TwoWay}" Margin="0,6,0,0" />
       <TextBlock Text="{Binding ThrottleSpeedDisplay}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,10,0,0" />
      </StackPanel></Border>
      <Border Style="{StaticResource CardPanel}" Margin="0,16,0,0"><StackPanel>
-      <TextBlock Text="05  /  ACIONAMENTO GLOBAL" Style="{StaticResource SectionLabel}" />
+      <TextBlock Text="04 / ACIONAMENTO GLOBAL" Style="{StaticResource SectionLabel}" />
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><TextBlock Text="Atalho global" FontWeight="SemiBold" VerticalAlignment="Center" /><ComboBox Grid.Column="1" ItemsSource="{Binding AvailableHotkeys.Keys}" SelectedItem="{Binding SelectedHotkeyName}" /></Grid>
-      <TextBlock Text="O botão e o atalho disparam o mesmo ciclo temporizado." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
+      <TextBlock Text="Botão: um pulso manual. Atalho: um ciclo temporizado por pressionamento, com o mesmo perfil. Sem repetição automática ou sobreposição; solte antes de repetir. Espaço continua chegando à aplicação (pulo normal)." Style="{StaticResource HelpText}" Margin="0,10,0,0" />
      </StackPanel></Border>
      <Expander Header="Diagnóstico · eventos do sistema" Foreground="{StaticResource TextMutedBrush}" Margin="4,18,4,0"><ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="11" Height="140" Margin="0,10,0,0" /></Expander>
     </StackPanel></ScrollViewer>
@@ -113,7 +96,6 @@
    <StackPanel VerticalAlignment="Center"><TextBlock Text="{Binding SettingsStatus}" FontSize="12" ToolTip="{Binding SettingsPath}" TextTrimming="CharacterEllipsis" /><TextBlock Text="Carregar / Padrões param a captura. Apenas Salvar grava o JSON." Style="{StaticResource HelpText}" Margin="0,5,0,0" /></StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0,0,0"><Button Content="Salvar" Command="{Binding SaveSettingsCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" /><Button Content="Carregar" Command="{Binding LoadSettingsCommand}" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" /><Button Content="Padrões" Command="{Binding ResetSettingsCommand}" Style="{StaticResource OutlineButton}" /></StackPanel>
   </Grid></Border>
-  <Border Grid.Row="3" BorderBrush="{StaticResource BorderDarkBrush}" BorderThickness="0,1,0,0" Padding="24,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="{Binding FilterStatusText}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="WINDIVERT  /  AMBIENTE AUTORIZADO" FontSize="10" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="16,0,0,0" /></Grid></Border>
+  <Border Grid.Row="3" BorderBrush="{StaticResource BorderDarkBrush}" BorderThickness="0,1,0,0" Padding="24,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="{Binding FilterStatusText}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding FilterStatusText}" /><TextBlock Grid.Column="1" Text="WINDIVERT / AMBIENTE AUTORIZADO" FontSize="10" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="16,0,0,0" /></Grid></Border>
  </Grid>
 </Window>
-

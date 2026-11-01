@@ -1,0 +1,72 @@
+name: Windows validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      driver_tests:
+        description: Run administrator WinDivert tests (isolated loopback only)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    if: github.event_name != 'workflow_dispatch' || !inputs.driver_tests
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build application and tests
+        shell: pwsh
+        run: |
+          dotnet build DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --nologo
+          exit $LASTEXITCODE
+      - name: Unit and regression tests (no driver)
+        run: dotnet test DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --no-build --filter "Category!=Driver" --logger "trx;LogFileName=windows.trx" --results-directory artifacts/tests
+      - name: WPF visual tree and bindings
+        run: dotnet run --project DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --no-build
+      - name: Single Windows x64 download
+        run: dotnet publish DarkDesync/DarkDesync.csproj -c Release -r win-x64 --self-contained false -o artifacts/DarkDesync-win-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DarkDesync-win-x64
+          path: artifacts/DarkDesync-win-x64/
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-test-results
+          path: artifacts/tests/
+          retention-days: 7
+  driver-loopback:
+    if: github.event_name == 'workflow_dispatch' && inputs.driver_tests
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      DARKDESYNC_DRIVER_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build test-only UDP child process (no second application)
+        run: dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --nologo
+      - name: Explicit driver tests, own TCP and UDP loopback sockets only
+        run: dotnet test DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --filter "Category=Driver" --logger "trx;LogFileName=driver.trx" --results-directory artifacts/driver
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: driver-test-results
+          path: artifacts/driver/
+          retention-days: 7

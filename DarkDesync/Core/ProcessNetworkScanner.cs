@@ -30,6 +30,70 @@ public sealed class ProcessNetworkScanner
         uint RemoteAddr
     );
 
+    internal record UdpBinding(uint ProcessId, ushort Port, uint LocalAddr, bool IPv6 = false);
+
+    // Negative ambiguity check ONLY. The positive identity proof is a live PID FLOW
+    // event with a complete tuple, held by FlowTracker, not this socket table.
+    internal bool IsExclusiveUdpBinding(uint pid, ProcessEndpoint flow)
+    {
+        try
+        {
+            var bindings = ReadUdpBindings(AF_INET);
+            bindings.AddRange(ReadUdpBindings(23)); // AF_INET6: also reject dual-stack collisions.
+            return HasExclusiveUdpBinding(pid, flow, bindings);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cannot exclude UDP binding ambiguity");
+            return false;
+        }
+    }
+
+    internal static bool HasExclusiveUdpBinding(uint pid, ProcessEndpoint flow, IReadOnlyList<UdpBinding> bindings)
+    {
+        if (pid == 0 || flow.Protocol != 17 || flow.LocalPort == 0 || flow.RemotePort == 0 ||
+            flow.LocalAddr == 0 || flow.RemoteAddr == 0) return false;
+        var matching = bindings.Where(b => b.Port == flow.LocalPort).ToArray();
+        // Conservatively reject reuse even on different local IPs or by the same PID.
+        return matching.Length == 1 && !matching[0].IPv6 && matching[0].ProcessId == pid &&
+            (matching[0].LocalAddr == 0 || matching[0].LocalAddr == flow.LocalAddr);
+    }
+
+    private static List<UdpBinding> ReadUdpBindings(int family)
+    {
+        int size = 0;
+        uint result = GetExtendedUdpTable(IntPtr.Zero, ref size, false, family, UDP_TABLE_CLASS.UDP_TABLE_OWNER_PID, 0);
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            if ((result != 0 && result != 122) || size < 4 || size > 8 * 1024 * 1024)
+                throw new System.ComponentModel.Win32Exception((int)result, "UDP owner table unavailable");
+            int allocated = size;
+            IntPtr buffer = Marshal.AllocHGlobal(allocated);
+            try
+            {
+                result = GetExtendedUdpTable(buffer, ref size, false, family, UDP_TABLE_CLASS.UDP_TABLE_OWNER_PID, 0);
+                if (result == 122) continue;
+                if (result != 0) throw new System.ComponentModel.Win32Exception((int)result);
+                int count = Marshal.ReadInt32(buffer);
+                int rowSize = family == AF_INET ? 12 : 28;
+                if (count < 0 || count > (allocated - 4) / rowSize) throw new InvalidOperationException("Invalid UDP owner table");
+                var bindings = new List<UdpBinding>(count);
+                for (int i = 0; i < count; i++)
+                {
+                    IntPtr row = buffer + 4 + i * rowSize;
+                    int portOffset = family == AF_INET ? 4 : 20;
+                    ushort port = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)Marshal.ReadInt32(row, portOffset));
+                    uint owner = unchecked((uint)Marshal.ReadInt32(row, portOffset + 4));
+                    uint ip = family == AF_INET ? unchecked((uint)Marshal.ReadInt32(row)) : 0;
+                    bindings.Add(new(owner, port, ip, family != AF_INET));
+                }
+                return bindings;
+            }
+            finally { Marshal.FreeHGlobal(buffer); }
+        }
+        throw new InvalidOperationException("UDP owner table kept changing; no reliable snapshot");
+    }
+
     /// <summary>
     /// Gets all TCP and UDP endpoints for the specified process.
     /// </summary>
@@ -99,7 +163,7 @@ public sealed class ProcessNetworkScanner
             for (int i = 0; i < numEntries; i++)
             {
                 var row = Marshal.PtrToStructure<MIB_TCPROW_OWNER_PID>(rowPtr);
-                if (row.dwOwningPid == processId)
+                if (row.dwOwningPid == processId && row.dwState == 5)
                 {
                     ushort localPort = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)row.dwLocalPort);
                     ushort remotePort = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)row.dwRemotePort);

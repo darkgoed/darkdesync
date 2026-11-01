@@ -10,13 +10,16 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel;
     private readonly HotkeyService _hotkeyService;
+    private readonly ILoggerFactory _loggerFactory;
 
-    public MainWindow()
+    public MainWindow() : this(null) { }
+
+    internal MainWindow(SettingsStore? settingsStore)
     {
         InitializeComponent();
 
         // Setup logger factory
-        using var loggerFactory = LoggerFactory.Create(builder =>
+        var loggerFactory = _loggerFactory = LoggerFactory.Create(builder =>
         {
             builder.AddConsole();
             builder.SetMinimumLevel(LogLevel.Debug);
@@ -41,8 +44,8 @@ public partial class MainWindow : Window
         var processService = new ProcessService(processServiceLogger);
         var controller = new DesyncController(desyncControllerLogger, stateMachine, packetEngine);
 
-        _viewModel = new MainViewModel(processService, _hotkeyService, controller, packetEngine);
-        if (System.IO.File.Exists(SettingsStore.DefaultPath)) _viewModel.LoadSettings();
+        _viewModel = new MainViewModel(processService, _hotkeyService, controller, packetEngine, settingsStore);
+        if (System.IO.File.Exists(_viewModel.SettingsPath)) _viewModel.LoadSettings();
         DataContext = _viewModel;
 
         Loaded += MainWindow_Loaded;
@@ -81,5 +84,6 @@ public partial class MainWindow : Window
             _viewModel.Dispose();
         }
         catch { }
+        finally { _loggerFactory.Dispose(); }
     }
 }

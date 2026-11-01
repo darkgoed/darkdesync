@@ -57,13 +57,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<string> FilterModeOptions { get; } = new()
     {
-        "Outbound (All Sending Packets — Padrão Clumsy)",
-        "Todo o Tráfego (Inbound + Outbound)",
-        "Apenas Portas da Aplicação",
+        "Saída do alvo (IPv4, TCP/UDP)",
+        "Entrada + saída do alvo (IPv4, TCP/UDP)",
+        "Conexões verificadas da aplicação",
         "Personalizado"
     };
 
-    private string _selectedFilterModeText = "Outbound (All Sending Packets — Padrão Clumsy)";
+    private string _selectedFilterModeText = "Saída do alvo (IPv4, TCP/UDP)";
     public string SelectedFilterModeText
     {
         get => _selectedFilterModeText;
@@ -115,10 +115,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
                 AddLog($"[PROCESSO] Alvo: {value?.ProcessName ?? "Nenhum"} (PID: {value?.ProcessId ?? 0})");
 
-                if (GetFilterMode() == FilterMode.ProcessPorts)
-                {
-                    ApplyFilterMode();
-                }
+                ApplyFilterMode();
             }
         }
     }
@@ -289,13 +286,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _selectedDiagnosticModeText, value))
             {
+                _controller.CancelCycle();
                 OnPropertyChanged(nameof(IsBurstLossVisible));
                 OnPropertyChanged(nameof(IsAsymmetricLossVisible));
+                OnPropertyChanged(nameof(IsDiagnosticModeSelected));
+                OnPropertyChanged(nameof(IsLegacyModeSelected));
             }
         }
     }
     public bool IsBurstLossVisible => _selectedDiagnosticModeText == "Burst Loss";
     public bool IsAsymmetricLossVisible => _selectedDiagnosticModeText == "Asymmetric Loss";
+    public bool IsDiagnosticModeSelected => _selectedDiagnosticModeText != "Desativado";
+    public bool IsLegacyModeSelected => !IsDiagnosticModeSelected;
 
     // Diagnostic properties (0–800 ms, default 150 ms)
     private int _diagnosticCycleDurationMs = 150;
@@ -554,6 +556,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _packetEngine.ErrorOccurred += err => _dispatcher.InvokeAsync(() =>
             {
                 AddLog($"[ERRO MOTOR] {err}");
+                FilterStatusText = err;
+                IsEngineRunning = _packetEngine.IsRunning;
             });
         }
 
@@ -563,7 +567,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _dispatcher.InvokeAsync(() =>
             {
                 AddLog("[HOTKEY] Tecla acionada via teclado");
-                ExecuteTriggerCycle();
+                ExecuteTriggerCycle("atalho global");
             });
         };
 
@@ -631,9 +635,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         return SelectedFilterModeText switch
         {
-            "Outbound (All Sending Packets — Padrão Clumsy)" => FilterMode.Outbound,
-            "Todo o Tráfego (Inbound + Outbound)" => FilterMode.AllTraffic,
-            "Apenas Portas da Aplicação" => FilterMode.ProcessPorts,
+            "Saída do alvo (IPv4, TCP/UDP)" => FilterMode.Outbound,
+            "Entrada + saída do alvo (IPv4, TCP/UDP)" => FilterMode.AllTraffic,
+            "Conexões verificadas da aplicação" => FilterMode.ProcessPorts,
             "Personalizado" => FilterMode.Custom,
             _ => FilterMode.Outbound
         };
@@ -645,19 +649,23 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var mode = GetFilterMode();
         uint pid = SelectedProcess?.ProcessId ?? 0;
 
+        _controller.CancelCycle();
         if (_packetEngine != null && _packetEngine.IsRunning)
         {
             _packetEngine.UpdateFilter(mode, pid, CustomFilterText);
-            FilterStatusText = $"Filtro: {_packetEngine.CurrentFilter}";
-            AddLog($"[FILTRO] Modo alterado para: {SelectedFilterModeText} ({_packetEngine.CurrentFilter})");
+            IsEngineRunning = false;
+            FilterStatusText = "Alvo/filtro alterado • captura parada; reinicie explicitamente.";
         }
         else
         {
             FilterStatusText = $"Filtro preparado: {SelectedFilterModeText} • captura parada";
+            _packetEngine?.UpdateFilter(mode, pid, CustomFilterText);
         }
     }
 
-    private void ExecuteTriggerCycle()
+    private void ExecuteTriggerCycle() => ExecuteTriggerCycle("pulso manual");
+
+    private void ExecuteTriggerCycle(string source)
     {
         if (!CycleProfileEnabled && !(ThrottleEnabled && SelectedThrottleMode == ThrottleModeOptions[0]))
         {
@@ -670,11 +678,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        if (IsDiagnosticModeSelected && CycleProfileEnabled && DiagnosticCycleDurationMs == 0)
+        {
+            AddLog("[CICLO] Duração 0 ms: nenhum pulso ou captura iniciado.");
+            return;
+        }
         EnsureEngineRunning();
 
         if (_packetEngine != null && !_packetEngine.IsRunning) return;
 
-        var diagMode = _selectedDiagnosticModeText switch
+        var diagMode = (CycleProfileEnabled ? _selectedDiagnosticModeText : "Desativado") switch
         {
             "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
             "Burst Loss" => DiagnosticMode.BurstLoss,
@@ -682,20 +695,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _ => DiagnosticMode.None
         };
 
-        if (diagMode != DiagnosticMode.None)
-        {
-            bool started = _controller.TriggerDiagnosticCycle(diagMode, DiagnosticCycleDurationMs);
-            if (!started) AddLog("[AVISO] Não foi possível iniciar diagnóstico.");
-            return;
-        }
-
-        bool cycleStarted = _controller.TriggerCycle();
+        AddLog($"[ACIONAMENTO] {source}; efeito: {diagMode}");
+        bool cycleStarted = _controller.TriggerCycle(diagMode, DiagnosticCycleDurationMs);
         if (!cycleStarted) AddLog("[AVISO] Não foi possível iniciar ciclo.");
     }
 
     private void ExecuteCancelCycle()
     {
         _controller.CancelCycle();
+        if (_packetEngine is { IsRunning: false }) _packetEngine.Stop(); // Also stop pending UDP observation.
         AddLog("[SISTEMA] Ciclo cancelado pelo usuário.");
     }
 
