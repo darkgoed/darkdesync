@@ -62,6 +62,8 @@ internal static class Program
             vm.ResetSettingsCommand.Execute(null); Pump();
             Require(!vm.IsLegacyGlobalSelected && vm.EngineToggleText == "START", "Default is strict, START is idle");
             vm.SelectedFilterModeText = "Outbound legado — todos os aplicativos (global)"; Pump();
+            Require(vm.SelectedDiagnosticModeText == "Atraso (ms)" && vm.GlobalDelayMs == 150,
+                "Selecting GLOBAL defaults to finite packet delay, never implicit 100% packet loss");
             var warning = (TextBlock)window.FindName("GlobalLegacyWarning");
             Require(warning.IsVisible && warning.Text.Contains("TODAS") && warning.Text.Contains("Windows"), "GLOBAL scope must be explicit");
             Require(vm.EngineToggleText == "START", "Selecting GLOBAL does not open capture");
