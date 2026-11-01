@@ -437,7 +437,8 @@ public sealed class PacketEngine : IDisposable
             Volatile.Write(ref _scopeStatus, new(_targetProcessId, observing, _captureRequested, _isRunning,
                 tcp.Length, endpoints.Count(e => e.Protocol == 17), udp.Length, eligibleUdp.Length,
                 _scopedConnections.Count(e => e.Protocol == 6), _scopedConnections.Count(e => e.Protocol == 17),
-                reason, _currentFilter, CaptureScopeStatus.Describe(_scopedConnections)));
+                reason, _currentFilter, "Elegíveis (até 64 no diagnóstico):\n" + CaptureScopeStatus.Describe(eligible.Take(64)) +
+                "\nEscopadas em NETWORK:\n" + CaptureScopeStatus.Describe(_scopedConnections)));
         }
         catch (Exception ex)
         {
