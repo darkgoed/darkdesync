@@ -21,6 +21,31 @@ public class WinDivertDropIntegrationTests
 {
     [DriverTheory]
     [Trait("Category", "Driver")]
+    [InlineData(12)]
+    public async Task RapidStartStop_DrainsWorkersWithoutDisposedToken(int repetitions)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var client = new TcpClient(AddressFamily.InterNetwork);
+        await client.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
+        using var server = await listener.AcceptTcpClientAsync();
+        using var engine = DiagnosticModesTests.Engine();
+        for (int i = 0; i < repetitions; i++)
+        {
+            Assert.True(engine.Start(FilterMode.Custom, (uint)Environment.ProcessId, customFilter: "loopback"));
+            engine.Stop();
+            foreach (var name in new[] { "_captureTask", "_throttleReleaseTask" })
+            {
+                var worker = (Task)typeof(PacketEngine).GetField(name,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(engine)!;
+                Assert.True(worker.IsCompletedSuccessfully, name + ": " + worker.Status);
+            }
+        }
+        Assert.False(engine.IsRunning);
+    }
+
+    [DriverTheory]
+    [Trait("Category", "Driver")]
     [InlineData(DiagnosticMode.OutboundFreeze)]
     [InlineData(DiagnosticMode.BurstLoss)]
     [InlineData(DiagnosticMode.AsymmetricLoss)]

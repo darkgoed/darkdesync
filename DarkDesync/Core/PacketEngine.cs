@@ -291,8 +291,9 @@ public sealed class PacketEngine : IDisposable
             _isRunning = true;
         }
 
-        _captureTask = Task.Run(() => CaptureLoop(_cts.Token));
-        _throttleReleaseTask = Task.Run(() => ThrottleReleaseLoop(_cts.Token));
+        var token = _cts.Token;
+        _captureTask = Task.Run(() => CaptureLoop(token));
+        _throttleReleaseTask = Task.Run(() => ThrottleReleaseLoop(token));
 
         // Connection scope is immutable for this capture session. New connections
         // require an explicit restart, never a broad port-based fallback.
