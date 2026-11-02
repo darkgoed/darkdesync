@@ -36,11 +36,11 @@ internal static partial class Program
             var state = (TextBlock)window.FindName("CaptureState");
             var status = (TextBlock)window.FindName("StartStatus");
             var enabled = controls.OfType<CheckBox>().Single(c => Equals(c.Content, "Habilitado"));
-            var consent = (CheckBox)window.FindName("PacketSizeConsent");
+            Require(window.FindName("PacketSizeConsent") == null, "No redundant per-mode consent UI");
             Require(controls.OfType<ComboBox>().Count() == 2, "Only effect and hotkey selectors; no process/network/protocol picker");
             Require(((TextBlock)window.FindName("OutboundScope")).Text == "Outbound · todos os aplicativos", "Fixed global scope warning");
             Require(!controls.OfType<CheckBox>().Any(c => c.Content is string t && (t.Contains("alvo") || t.Contains("EXPERIMENTAL"))), "No target/experimental controls");
-            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping", "Packet Size-Aware Shaping" }), "Five genuine outbound effects, personal ranking intact");
+            Require(vm.DiagnosticModeOptions.Count == 12 && vm.DiagnosticModeOptions.SequenceEqual(ModeCatalog.OutboundChoices.Keys) && !vm.DiagnosticModeOptions.Contains("Packet Size-Aware Shaping"), "Twelve genuine outbound effects, personal ranking intact");
             Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.OutboundFreeze) && Equals(mode.SelectedItem, vm.SelectedDiagnosticModeText), "Reorder must not pick rank 1 by accident");
             Require(vm.DiagnosticCycleDurationMs == 200 && vm.SelectedHotkeyName == "Espaço", "Default pulse/hotkey preserved");
             Require(vm.IsLegacyGlobalSelected && vm.SelectedProcess == null && !engine.IsCaptureRequested && state.Text == "PARADO / PAUSADO", "Default global is prepared, not auto-started");
@@ -53,11 +53,8 @@ internal static partial class Program
                 var duration = controls.OfType<Slider>().Single(); duration.Value = 175; Pump();
                 Require(vm.DiagnosticCycleDurationMs == 175, "Ranking does not override the duration");
             }
-            Require(consent.IsVisible && !consent.IsChecked.GetValueOrDefault(), "Packet Size has separate default-off consent");
-            InvokeButton(startButton);
-            Require(status.Text.Contains("Consentimento") && !engine.IsCaptureRequested, "Missing consent refuses visibly, without false ACTIVE");
-            consent.IsChecked = true; Pump(); vm.SaveSettingsCommand.Execute(null); vm.LoadSettings(); Pump();
-            Require(!vm.GlobalPacketSizeConsent && !engine.IsCaptureRequested, "Consent never persists or auto-starts");
+            vm.SaveSettingsCommand.Execute(null); vm.LoadSettings(); Pump();
+            Require(!engine.IsCaptureRequested, "Saving/loading never auto-starts");
             foreach (var oldFilter in Enum.GetValues<FilterMode>())
             {
                 store.Save(new AppSettings { FilterMode = oldFilter, DiagnosticMode = DiagnosticMode.FlowAwareShaping, DiagnosticDurationMs = 175, OnlyTargetForeground = true });

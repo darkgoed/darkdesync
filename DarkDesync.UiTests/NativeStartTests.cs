@@ -79,7 +79,7 @@ internal static partial class Program
             var state = (TextBlock)window.FindName("CaptureState");
             var start = (Button)window.FindName("StartStopButton");
             var pulse = controls.OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.TriggerCycleCommand));
-            var consent = (CheckBox)window.FindName("PacketSizeConsent");
+            Require(window.FindName("PacketSizeConsent") == null, "No per-mode consent checkbox");
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
             void ClickStart()
             {
@@ -129,29 +129,17 @@ internal static partial class Program
                 using var sender = new UdpClient(); sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
                 long held = engine.PacketsThrottled;
                 InvokeButton(pulse); Require(engine.IsEffectActive && state.Text == "PULSO ATIVO", "Pulse state is distinct from capture arming");
-                Await(sender.SendAsync(new byte[900], 900)); Until(() => engine.PacketsThrottled > held);
+                long sentBefore = engine.PacketsPassedThrough, lossBefore = engine.IntentionalBurstDrops;
+                Await(sender.SendAsync(new byte[900], 900));
+                Until(() => engine.PacketsThrottled > held || engine.PacketsPassedThrough > sentBefore || engine.IntentionalBurstDrops > lossBefore);
                 ClickStart(); Stopped();
-                Require(Await(receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer.Length == 900, "STOP drains own UDP");
-                Await(Task.Delay(40)); Require(receiver.Available == 0 && engine.PacketsDropped == 0, "No duplication or intentional loss");
+                if (engine.IntentionalBurstDrops == lossBefore)
+                    Require(Await(receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer.Length == 900, "STOP drains own UDP or GE passes");
+                Await(Task.Delay(40)); Require(receiver.Available == 0, "No duplication");
+                if (mode != DiagnosticMode.GilbertElliottBurstLoss) Require(engine.PacketsDropped == 0, "Non-loss profile cannot discard");
                 Console.WriteLine("PASS outbound-only UIA/native: " + mode + "; no PID; enabled START; ARMADO/PULSO/PARADO; exact outbound; own TCP/UDP; focused Space; STOP drain");
             }
-            Select(DiagnosticMode.PacketSizeAwareShaping); ClickStart(); Stopped();
-            Require(status.Text.Contains("Consentimento") && !status.Text.Contains("PID"), "Separate consent, never a target prerequisite");
-            consent.IsChecked = true; Pump(); ClickStart(); Armed();
-            Await(TcpLoopbackProbe()); // Packet Size must leave TCP healthy internally.
-            using (var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
-            using (var sender = new UdpClient())
-            {
-                sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
-                InvokeButton(pulse); Require(engine.IsEffectActive && state.Text == "PULSO ATIVO", "Consented Packet Size native pulse");
-                for (byte id = 80; id < 83; id++) { var bytes = new byte[1000]; bytes[0] = id; Await(sender.SendAsync(bytes, bytes.Length)); }
-                Until(() => engine.PacketsThrottled >= 3); ClickStart(); Stopped();
-                var ids = new List<byte>();
-                for (int i = 0; i < 3; i++) ids.Add(Await(receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer[0]);
-                Require(ids.SequenceEqual(new byte[] { 80, 81, 82 }) && engine.PacketsDropped == 0, "Consented size pacing drains once, FIFO within flow, no loss/replay");
-                Await(Task.Delay(40)); Require(receiver.Available == 0, "No duplicated datagram");
-            }
-            Console.WriteLine("PASS outbound-only UIA/native: PacketSizeAwareShaping; explicit consent; no PID; native UDP pacing and STOP drain; TCP healthy");
+            Console.WriteLine("PASS twelve exposed effects; PacketSizeAware remains legacy-only and is tested outside production UI.");
             foreach (var oldFilter in Enum.GetValues<FilterMode>())
             {
                 store.Save(new AppSettings { FilterMode = oldFilter, DiagnosticMode = DiagnosticMode.DualTokenBucket, DiagnosticDurationMs = 175, OnlyTargetForeground = true });
