@@ -1449,10 +1449,12 @@ public sealed class PacketEngine : IDisposable
         // Same-handle reinjection cannot be recaptured; refuse other injectors too.
         bool globalSize = _filterMode == FilterMode.LegacyGlobalOutbound &&
             _armedScopeProfile == DiagnosticMode.PacketSizeAwareShaping && GlobalPacketSizeConsent;
-        // A valid TCP packet is a disjoint protocol, never in this UDP scheduler.
-        // Do not cancel a GLOBAL UDP pulse just because another app uses TCP.
-        if (globalSize && length >= 20 && Marshal.ReadByte(buffer, 0) >> 4 == 4 &&
-            Marshal.ReadByte(buffer, 9) == 6 && TryExtractIpAndPorts(buffer, length, out _, out _, out _, out _))
+        // The literal GLOBAL outbound filter also captures unrelated TCP,
+        // IPv6 and ICMP. These protocols are disjoint from IPv4 UDP shaping:
+        // pass them through without cancelling an active UDP pulse. Malformed
+        // IPv4 UDP and impostor packets retain conservative fail-open/cancel.
+        if (globalSize && !native.Impostor && length >= 20 &&
+            (Marshal.ReadByte(buffer, 0) >> 4 != 4 || Marshal.ReadByte(buffer, 9) != 17))
         { RecordSend(SendPacket(buffer, length, native)); return false; }
         bool outbound; PulseShaper.Flow flow;
         bool identified = globalSize

@@ -4,7 +4,7 @@
 
 `SelectVerifiedScopeForScopedProfile` changed GLOBAL + PID to ProcessPorts on target/effect/START; removed. `ReconcileScope` replaced rather than intersected the selected direction; fixed. Explicit PID Outbound remains Outbound and retains exact tuple authorization; inbound/duplex combinations now fail visibly instead of silently capturing another direction.
 
-GLOBAL Packet Size-Aware is implemented using the existing bounded scheduler, native literal outbound capture and explicit session-only GLOBAL UDP IPv4 consent. It does not require PID tuples. TCP is pass-through; other unsupported/malformed traffic cancels and drains safely. Global reordering remains forbidden. There is no inbound-under-outbound claim and no extra effects.
+GLOBAL Packet Size-Aware is implemented using the existing bounded scheduler, native literal outbound capture and explicit session-only GLOBAL UDP IPv4 consent. It does not require PID tuples. As of patch .4, disjoint TCP/IPv6/ICMP traffic passes through without cancelling UDP pacing; malformed IPv4 UDP, short unidentified packets and impostors still cancel and drain safely. Global reordering remains forbidden. There is no inbound-under-outbound claim and no extra effects. Follow-up: [mixed traffic audit](GLOBAL_MIXED_TRAFFIC_PATCH_20261102.md).
 
 ## Review (single executor, no duplicate agents)
 
