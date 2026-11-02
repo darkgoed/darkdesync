@@ -34,7 +34,7 @@ internal static class Program
             var controls = Descendants(window).ToArray();
             var mode = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             Require(controls.OfType<ComboBox>().Count(c => ReferenceEquals(c.ItemsSource, vm.AvailableHotkeys.Keys)) <= 1, "One hotkey picker");
-            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "Outbound Freeze", "Micro-Freeze", "Smooth Delay", "Soft Jitter" }), "Exactly four non-loss effects");
+            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "Outbound Freeze", "Burst Buffering", "Slotted Transmission", "Sawtooth Delay", "Bandwidth Shaping", "Adaptive Freeze" }), "Exactly six non-loss effects");
             Require(vm.SelectedDiagnosticModeText == "Outbound Freeze" && vm.DiagnosticCycleDurationMs == 200, "Freeze / 200ms defaults");
             Require(controls.OfType<Slider>().Count() == 1, "Only shared pulse slider; retention/loss controls removed");
             Require(!controls.OfType<TextBlock>().Any(t => t.Text.Contains("RETENÇÃO E JITTER")), "Retention panel removed");
@@ -55,7 +55,7 @@ internal static class Program
             vm.ResetSettingsCommand.Execute(null); Pump();
             Require(vm.DiagnosticCycleDurationMs == 200, "Default 200 ms");
             vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.DiagnosticCycleDurationMs == 800 && vm.SelectedDiagnosticModeText == "Soft Jitter", "Mode/duration roundtrip");
+            Require(vm.DiagnosticCycleDurationMs == 800 && vm.SelectedDiagnosticModeText == "Adaptive Freeze", "Mode/duration roundtrip");
             Require(vm.BurstLossPercentage == 37 && vm.AsymmetricInboundLossPercentage == 12 && vm.AsymmetricOutboundLossPercentage == 84, "Loss percentages roundtrip");
             Require(vm.SelectedHotkeyName == "F2", "Shared hotkey roundtrip");
             vm.DiagnosticCycleDurationMs = 0; vm.TriggerCycleCommand.Execute(null); Pump();
@@ -73,7 +73,7 @@ internal static class Program
                 "START/STOP button is available in GLOBAL");
             vm.TriggerCycleCommand.Execute(null); Pump();
             Require(!vm.IsEngineRunning && vm.NetworkDiagnosticsText.Contains("GLOBAL"), "Manual pulse cannot arm GLOBAL without START");
-            mode.SelectedItem = "Smooth Delay"; Pump();
+            mode.SelectedItem = "Sawtooth Delay"; Pump();
             var pulseSlider = controls.OfType<Slider>().Single(sl => sl.Minimum == 0 && sl.Maximum == 800);
             Require(pulseSlider.IsVisible, "Pulse duration must also be visible in GLOBAL");
             pulseSlider.Value = 175; Pump();
@@ -84,7 +84,7 @@ internal static class Program
             vm.SaveSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
             Require(vm.IsLegacyGlobalSelected && vm.EngineToggleText == "START",
                 "GLOBAL mode selection persists, capture never starts on load");
-            Require(vm.SelectedDiagnosticModeText == "Smooth Delay", "New effect roundtrip without starting capture");
+            Require(vm.SelectedDiagnosticModeText == "Sawtooth Delay", "New effect roundtrip without starting capture");
             // Explicit driver-free lifecycle model; native capture is covered only by the Driver suite.
             var engine = (PacketEngine)typeof(MainViewModel).GetField("_packetEngine",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(vm)!;
@@ -107,7 +107,7 @@ internal static class Program
             Require(engine.ActiveDiagnosticMode == DiagnosticMode.None, "START arms with no selected effect applied");
             vm.DiagnosticCycleDurationMs = 200;
             Key(true); Pump();
-            Require(engine.IsEffectActive && engine.ActiveDiagnosticMode == DiagnosticMode.SmoothDelay, "Actual HotkeyPressed subscription starts selected 200ms pulse after START");
+            Require(engine.IsEffectActive && engine.ActiveDiagnosticMode == DiagnosticMode.SawtoothDelay, "Actual HotkeyPressed subscription starts selected 200ms pulse after START");
             vm.CancelCycleCommand.Execute(null); Pump();
             Require(engine.IsRunning && !engine.IsEffectActive, "Cancel restores without closing capture");
             Key(true); Pump();
@@ -120,25 +120,25 @@ internal static class Program
             vm.SelectedThrottleMode = vm.ThrottleModeOptions[1]; Pump();
             Require(engine.IsRunning && engine.StateMachine.Current == DesyncStateMachine.State.Armed,
                 "Legacy controls cannot apply an effect to armed GLOBAL");
-            mode.SelectedItem = "Micro-Freeze"; Pump();
+            mode.SelectedItem = "Burst Buffering"; Pump();
             Require(engine.IsRunning && !engine.IsEffectActive && vm.EngineToggleText == "STOP", "Effect change preserves arming without effect");
             vm.DropPercentage = 37; vm.SaveSettingsCommand.Execute(null);
             vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.SelectedDiagnosticModeText == "Micro-Freeze" && vm.DropPercentage == 37 && !engine.IsRunning,
+            Require(vm.SelectedDiagnosticModeText == "Burst Buffering" && vm.DropPercentage == 37 && !engine.IsRunning,
                 "Hidden legacy values survive save without being selected as effect");
             vm.SaveSettingsCommand.Execute(null);
             vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.SelectedDiagnosticModeText == "Micro-Freeze" && !engine.IsRunning, "Loading never starts capture");
+            Require(vm.SelectedDiagnosticModeText == "Burst Buffering" && !engine.IsRunning, "Loading never starts capture");
             vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.SelectedDiagnosticModeText == "Micro-Freeze", "Repeated load is independent of previous mode");
+            Require(vm.SelectedDiagnosticModeText == "Burst Buffering", "Repeated load is independent of previous mode");
             ModelRunning();
             vm.SelectedFilterModeText = vm.FilterModeOptions[0]; Pump();
             Require(!engine.IsRunning && vm.EngineToggleText == "START", "Filter change safely stops GLOBAL");
-            vm.SelectedDiagnosticModeText = "Smooth Delay"; Pump();
+            vm.SelectedDiagnosticModeText = "Sawtooth Delay"; Pump();
             Require(vm.IsDiagnosticModeSelected && pulseSlider.IsVisible, "Strict effects share the pulse control");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
-            Console.WriteLine("PASS: four non-loss choices, minimal controls, 200ms default, WPF bindings, settings, START/Space/STOP lifecycle; no physical keyboard/game claim.");
+            Console.WriteLine("PASS: six non-loss choices, minimal controls, 200ms default, WPF bindings, settings, START/Space/STOP lifecycle; no physical keyboard/game claim.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
