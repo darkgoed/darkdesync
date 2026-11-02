@@ -14,4 +14,5 @@ build/
 *.user
 *.suo
 artifacts/
+__pycache__/
 DarkDesync/visual-verification.png

@@ -20,6 +20,14 @@ public sealed class NetworkExperimentDriverTests(ITestOutputHelper output)
         output.WriteLine(JsonSerializer.Serialize(report));
         Assert.Equal(expected, report.Status);
         Assert.NotNull(report.Evidence);
+        if (id == NetworkExperiment.IPv6FlowLabel)
+        {
+            var evidence = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(report.Evidence));
+            var sent = evidence.GetProperty("Phases").EnumerateArray().Select(x => x.GetProperty("SentHex").GetString()!).ToArray();
+            var captured = evidence.GetProperty("CapturedHex").EnumerateArray().Select(x => x.GetString()!).ToArray();
+            Assert.Equal(sent.OrderBy(x => x), captured.OrderBy(x => x));
+            Assert.All(sent, x => NetworkTechniquesTests.AssertChecksums(Convert.FromHexString(x)));
+        }
         // Never consider an unavailable or missing handshake a successful driver proof.
         if (id is NetworkExperiment.TcpReceiveWindow or NetworkExperiment.TcpSackTimestamp)
         {
@@ -48,5 +56,18 @@ public sealed class NetworkExperimentDriverTests(ITestOutputHelper output)
         var next = await NetworkExperiments.RunAsync(id, null, default);
         output.WriteLine(JsonSerializer.Serialize(next));
         Assert.Equal(id == NetworkExperiment.IPv6FlowLabel ? ExperimentStatus.Operational : ExperimentStatus.ObservationOnly, next.Status);
+    }
+
+    [GlobalDriverTheory, Trait("Category", "Driver"), InlineData(NetworkExperiment.TcpReceiveWindow)]
+    public async Task StopDuringActiveCaptureReleasesSniffAndSockets(NetworkExperiment id)
+    {
+        using var cancel = new CancellationTokenSource();
+        var work = NetworkExperiments.RunAsync(id, null, cancel.Token);
+        await Task.Delay(20); cancel.Cancel();
+        var report = await work;
+        Assert.Equal(ExperimentStatus.Unavailable, report.Status); Assert.Contains("STOP", report.Summary);
+        var next = await NetworkExperiments.RunAsync(id, null, default);
+        Assert.Equal(ExperimentStatus.ObservationOnly, next.Status);
+        output.WriteLine(JsonSerializer.Serialize(report));
     }
 }
