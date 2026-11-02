@@ -22,6 +22,7 @@ public sealed record AppSettings
     public FilterMode FilterMode { get; init; } = FilterMode.Outbound;
     public string CustomFilter { get; init; } = "outbound";
     public int DiagnosticDurationMs { get; init; } = 200;
+    public PulseStyle PulseStyle { get; init; } = PulseStyle.Custom;
     public int GlobalDelayMs { get; init; } = 150;
     public int BurstLossPercentage { get; init; } = 50;
     public int AsymmetricInboundPercentage { get; init; } = 25;
@@ -38,6 +39,9 @@ public sealed record AppSettings
         Hotkey = Hotkey != null && HotkeyService.GetAvailableKeys().ContainsKey(Hotkey) ? Hotkey : "Espaço",
         CustomFilter = string.IsNullOrWhiteSpace(CustomFilter) ? "outbound" : CustomFilter,
         DiagnosticDurationMs = Math.Clamp(DiagnosticDurationMs, 0, 800),
+        PulseStyle = Enum.IsDefined(PulseStyle) &&
+            (EffectExperienceCatalog.FixedDuration(PulseStyle) is not int fixedMs || fixedMs == Math.Clamp(DiagnosticDurationMs, 0, 800))
+            ? PulseStyle : PulseStyle.Custom,
         GlobalDelayMs = Math.Clamp(GlobalDelayMs, 0, 3000),
         BurstLossPercentage = Math.Clamp(BurstLossPercentage, 0, 100),
         AsymmetricInboundPercentage = Math.Clamp(AsymmetricInboundPercentage, 0, 100),
