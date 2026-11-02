@@ -177,6 +177,8 @@ internal static partial class Program
             Require(Equals(startButton.Content, "STOP") && vm.StatusText == "AGUARDANDO" && startStatus.Text.Contains("Aguardando conexões"),
                 $"START button binding reflects pending capture, not active: button={startButton.Content}, status={vm.StatusText}, detail={startStatus.Text}");
             Require(vm.SelectedFilterModeText == vm.FilterModeOptions[0], "START keeps PID Outbound selection");
+            RouteSpace(startButton);
+            Require(engine.IsCaptureRequested && !engine.IsRunning, "Configured Space must not click focused STOP while waiting");
             enabled.IsChecked = false; Pump();
             Require(!vm.CycleProfileEnabled && startStatus.Text.Contains("Habilitado"), "Enable checkbox binding gives explicit instruction");
             enabled.IsChecked = true; Pump();

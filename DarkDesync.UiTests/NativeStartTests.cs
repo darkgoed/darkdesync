@@ -38,6 +38,23 @@ internal static partial class Program
         Pump();
     }
 
+    private static void RouteSpace(Button button)
+    {
+        button.Focus(); Pump();
+        Require(button.IsKeyboardFocused, "Real loaded START/STOP button has WPF keyboard focus");
+        var source = PresentationSource.FromVisual(button)!;
+        var down = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, Environment.TickCount, System.Windows.Input.Key.Space)
+            { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent };
+        button.RaiseEvent(down);
+        if (!down.Handled) { down.RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent; button.RaiseEvent(down); }
+        Pump();
+        var up = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, Environment.TickCount, System.Windows.Input.Key.Space)
+            { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyUpEvent };
+        button.RaiseEvent(up);
+        if (!up.Handled) { up.RoutedEvent = System.Windows.Input.Keyboard.KeyUpEvent; button.RaiseEvent(up); }
+        Pump();
+    }
+
     private static int RunNativeUi()
     {
         if (Environment.GetEnvironmentVariable("DARKDESYNC_DRIVER_TESTS") != "1" ||
@@ -97,6 +114,8 @@ internal static partial class Program
                 Require(engine.IsCaptureRequested && engine.IsRunning && Equals(start.Content, "STOP"), "Native GLOBAL START without PID/extra consent: " + mode);
                 Require(status.Text.Contains("ARMADA") && status.Text.Contains("Habilitado"), "Disabled effect must not mask native arming");
                 Require(!engine.IsEffectActive && engine.PacketsThrottled == 0, "START only arms");
+                RouteSpace(start);
+                Require(engine.IsCaptureRequested && engine.IsRunning, "Space must not activate focused STOP button");
                 Await(TcpLoopbackProbe());
                 InvokeButton(pulse); Require(!engine.IsEffectActive, "Habilitado=false refuses pulse, not START");
                 enabled.IsChecked = true; vm.DiagnosticCycleDurationMs = 250; Pump();
