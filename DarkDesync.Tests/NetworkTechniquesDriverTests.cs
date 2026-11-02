@@ -12,6 +12,26 @@ namespace DarkDesync.Tests;
 [Collection("WinDivert controlled driver")]
 public sealed class NetworkTechniquesDriverTests(ITestOutputHelper output)
 {
+    // Windows loopback can clear the IPv4 checksum on the post-WFP copy.
+    // Verify exact headers excluding only that field, and separately prove the
+    // production send-boundary checksum (below), never normalize transport data.
+    private static void EqualLoopback(byte[] expected, byte[] actual)
+    {
+        var a=expected.ToArray();var b=actual.ToArray();
+        if(a[0]>>4==4) { a[10]=a[11]=b[10]=b[11]=0; }
+        Assert.Equal(a,b);
+    }
+    private static void TransportChecksum(byte[] p)
+    { bool v6=p[0]>>4==6; Assert.Equal(0,NetworkTechniquesTests.Checksum(NetworkTechniquesTests.Pseudo(p,v6,p[v6?6:9]))); }
+    private static void ObserveRealNativeSends(PacketEngine e, Action<byte[]> observer)
+    {
+        var field=typeof(PacketEngine).GetField("_networkHandle",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
+        e.SendOverride=(p,n,address)=>
+        {
+            var bytes=new byte[n];System.Runtime.InteropServices.Marshal.Copy(p,bytes,0,(int)n);observer(bytes);
+            return WinDivertNative.WinDivertSend((IntPtr)field.GetValue(e)!,p,n,out var sent,ref address)&&sent==n;
+        };
+    }
     [GlobalDriverTheory, Trait("Category", "Driver")]
     [InlineData(DiagnosticMode.PacketDuplication,false)] [InlineData(DiagnosticMode.PacketDuplication,true)]
     [InlineData(DiagnosticMode.EcnCongestionMarking,false)] [InlineData(DiagnosticMode.EcnCongestionMarking,true)]
@@ -26,6 +46,7 @@ public sealed class NetworkTechniquesDriverTests(ITestOutputHelper output)
         Assert.NotEqual(WinDivertNative.InvalidHandle,injector);
         using var e=DiagnosticModesTests.Engine(); e.UpdateFilter(FilterMode.LegacyGlobalOutbound); e.DscpCodepoint=46;
         Assert.True(e.BeginLegacyGlobalContinuous(DiagnosticMode.None)); Assert.Equal("outbound",e.CurrentFilter);
+        var sendBoundary=new System.Collections.Concurrent.ConcurrentQueue<byte[]>(); ObserveRealNativeSends(e,sendBoundary.Enqueue);
         try
         {
             byte[] Make(byte marker,byte ecn)
@@ -38,28 +59,29 @@ public sealed class NetworkTechniquesDriverTests(ITestOutputHelper output)
                 await UdpDriverIntegrationTests.WaitUntil(()=>spy.Frames.Any(f=>f.Bytes[^1]==marker)); return original;
             }
             byte[] baseline=await Send(70,2);
-            Assert.Equal(baseline,spy.Frames.Single(f=>f.Bytes[^1]==70).Bytes); Assert.Equal(0,e.DuplicateCopiesSent+e.EcnPacketsMarked+e.DscpPacketsMarked);
+            EqualLoopback(baseline,spy.Frames.Single(f=>f.Bytes[^1]==70).Bytes); Assert.Equal(0,e.DuplicateCopiesSent+e.EcnPacketsMarked+e.DscpPacketsMarked);
             Assert.True(e.TriggerArmedEffect(mode,800)); byte[] during=await Send(71,2);
             if(mode==DiagnosticMode.PacketDuplication)
             {
                 Assert.Equal(during.Skip(v6?48:28),(await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
                 await UdpDriverIntegrationTests.WaitUntil(()=>spy.Frames.Count(f=>f.Bytes[^1]==71)==2);
-                Assert.All(spy.Frames.Where(f=>f.Bytes[^1]==71),f=>Assert.Equal(during,f.Bytes)); Assert.True(e.DuplicateCopiesSent>=1);
+                Assert.All(spy.Frames.Where(f=>f.Bytes[^1]==71),f=>EqualLoopback(during,f.Bytes)); Assert.True(e.DuplicateCopiesSent>=1);
             }
             else
             {
                 var observed=spy.Frames.Single(f=>f.Bytes[^1]==71).Bytes;
-                Assert.True(TechniquePackets.TryParse(observed,out var l)); NetworkTechniquesTests.AssertChecksums(observed);
+                Assert.True(TechniquePackets.TryParse(observed,out var l)); TransportChecksum(observed);
+                NetworkTechniquesTests.AssertChecksums(sendBoundary.First(b=>b[^1]==71));
                 Assert.Equal(mode==DiagnosticMode.EcnCongestionMarking?(byte)3:(byte)((46<<2)|2),TechniquePackets.TrafficClass(observed,l));
                 Assert.Equal(during.Skip(l.Transport+l.HeaderLength),observed.Skip(l.Transport+l.HeaderLength));
                 if(mode==DiagnosticMode.EcnCongestionMarking)
                 {
                     Assert.True(e.EcnPacketsMarked>=1); byte[] notEct=await Send(73,0);
-                    Assert.Equal(notEct,spy.Frames.Single(f=>f.Bytes[^1]==73).Bytes);
+                    EqualLoopback(notEct,spy.Frames.Single(f=>f.Bytes[^1]==73).Bytes);
                 }
                 else Assert.True(e.DscpPacketsMarked>=1);
             }
-            e.Stop(); byte[] after=await Send(72,2); Assert.Equal(after,spy.Frames.Single(f=>f.Bytes[^1]==72).Bytes);
+            e.Stop(); byte[] after=await Send(72,2); EqualLoopback(after,spy.Frames.Single(f=>f.Bytes[^1]==72).Bytes);
             await Task.Delay(40); Assert.Equal(0,receiver.Available); Assert.Equal(0,e.PacketsFailedToSend);
             output.WriteLine($"{mode} IPv{(v6?6:4)}: actual WinDivert chain injector1000 -> production0 -> sniff-1000; own bound loopback endpoints only; A/B/STOP parsed headers, payload and checksum verified; copies={e.DuplicateCopiesSent}, ECN={e.EcnPacketsMarked}, DSCP={e.DscpPacketsMarked}. Not an endpoint ECN-response or routing-priority claim.");
         }
@@ -82,6 +104,7 @@ public sealed class NetworkTechniquesDriverTests(ITestOutputHelper output)
             using var after=new PacketWireSpy($"outbound and tcp and tcp.SrcPort == {port}",-1000);
             using var e=DiagnosticModesTests.Engine();e.UpdateFilter(FilterMode.LegacyGlobalOutbound);e.DscpCodepoint=46;
             Assert.True(e.BeginLegacyGlobalContinuous(DiagnosticMode.None));
+            var sendBoundary=new System.Collections.Concurrent.ConcurrentQueue<byte[]>(); ObserveRealNativeSends(e,sendBoundary.Enqueue);
             Assert.True(e.TriggerArmedEffect(DiagnosticMode.TcpAckPacing,800));
             byte[] bytes=new byte[4096];for(int i=0;i<bytes.Length;i++)bytes[i]=(byte)(i*7);
             for(int i=0;i<4;i++)
@@ -103,7 +126,8 @@ public sealed class NetworkTechniquesDriverTests(ITestOutputHelper output)
             await client.GetStream().WriteAsync(new byte[37]);var read=new byte[37];await server.GetStream().ReadExactlyAsync(read);
             await UdpDriverIntegrationTests.WaitUntil(()=>after.Frames.Skip(observedBefore).Any(f=>TechniquePackets.TryParse(f.Bytes,out var l)&&(TechniquePackets.TrafficClass(f.Bytes,l)>>2)==46));
             var marked=after.Frames.Skip(observedBefore).First(f=>TechniquePackets.TryParse(f.Bytes,out var l)&&(TechniquePackets.TrafficClass(f.Bytes,l)>>2)==46);
-            NetworkTechniquesTests.AssertChecksums(marked.Bytes);e.Stop();
+            TransportChecksum(marked.Bytes);
+            NetworkTechniquesTests.AssertChecksums(sendBoundary.First(b=>TechniquePackets.TryParse(b,out var l)&&(TechniquePackets.TrafficClass(b,l)>>2)==46));e.Stop();
             output.WriteLine($"TCP IPv{(v6?6:4)} real connected endpoints: pure ACK held/released={e.PureAcksHeld}/{e.PureAcksReleased}; QPC pre/post delays ms=[{string.Join(',',delays.Select(x=>x.ToString("F2")))}]; exact ACK identities preserved; real TCP DSCP46 checksum verified; no UDP ACK invention.");
         }
         finally {listener.Stop();}

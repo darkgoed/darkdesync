@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 
 namespace DarkDesync.Core;
 
@@ -14,6 +15,16 @@ public sealed record MtuLabReport(string Id, int? InterfaceMtu, int LargestDeliv
 // registry, firewall or IPv6 PMTUD, and never crafts/injects fragments globally.
 internal static class LoopbackMtuLab
 {
+    // Windows GetAdaptersAddresses (used by NetworkInterface) can omit its
+    // software loopback adapter. Query the documented MIB_IFROW read-only.
+    [StructLayout(LayoutKind.Explicit, Size = 860)]
+    private struct InterfaceRow
+    {
+        [FieldOffset(512)] internal uint Index;
+        [FieldOffset(520)] internal uint Mtu;
+    }
+    [DllImport("iphlpapi.dll")]
+    private static extern uint GetIfEntry(ref InterfaceRow row);
     internal static async Task<MtuLabReport> RunAsync(CancellationToken cancellationToken)
     {
         int? mtu = null;
@@ -23,6 +34,11 @@ internal static class LoopbackMtuLab
                 .Select(n => (int?)n.GetIPProperties().GetIPv4Properties()?.Mtu).FirstOrDefault(m => m > 0);
         }
         catch (NetworkInformationException) { }
+        if (mtu == null && OperatingSystem.IsWindows())
+        {
+            var row = new InterfaceRow { Index = (uint)NetworkInterface.LoopbackInterfaceIndex };
+            if (GetIfEntry(ref row) == 0 && row.Mtu is > 0 and <= int.MaxValue) mtu = (int)row.Mtu;
+        }
         using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         using var sender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);

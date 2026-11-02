@@ -8,7 +8,7 @@ namespace DarkDesync.Tests;
 
 internal sealed class PacketWireSpy : IDisposable
 {
-    internal sealed record Frame(byte[] Bytes, long Timestamp, long ObservedAt);
+    internal sealed record Frame(byte[] Bytes, long Timestamp, long ObservedAt, uint Flags);
     private readonly IntPtr _handle;
     private readonly Task _reader;
     private int _stopped;
@@ -28,7 +28,7 @@ internal sealed class PacketWireSpy : IDisposable
                     if (!WinDivertNative.WinDivertRecv(_handle, p, 65535, out uint length, ref address)) break;
                     if (Frames.Count >= 256) continue;
                     byte[] bytes = new byte[length]; Marshal.Copy(p, bytes, 0, (int)length);
-                    Frames.Enqueue(new(bytes, address.Timestamp, Stopwatch.GetTimestamp()));
+                    Frames.Enqueue(new(bytes, address.Timestamp, Stopwatch.GetTimestamp(), address.Flags));
                 }
             }
             finally { Marshal.FreeHGlobal(p); }
