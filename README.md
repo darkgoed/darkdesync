@@ -6,7 +6,7 @@ Aplicativo Windows WPF C#/.NET 8 para ensaios de rede autorizados. Repositório 
 
 O filtro é literalmente `outbound`: TODOS os aplicativos do Windows, sem PID ou seleção oculta de protocolo. O aviso fixo permanece visível.
 
-1. Escolha um dos quatro favoritos e a duração: 0–800 ms, padrão 200 ms; 0 desativa.
+1. Escolha um dos quatro favoritos ou cinco técnicas e a duração: 0–800 ms, padrão 200 ms; 0 desativa.
 2. START abre captura como administrador em ARMADO/pass-through, SEM efeito.
 3. Espaço ou Pulso manual aplica UM pulso; ao terminar volta a ARMADO sem fechar o handle. Tecla mantida não repete; não existe ciclo automático. O hook não consome a tecla.
 4. STOP cancela e libera pendências com handle ainda válido, encerra workers/captura e retorna a PARADO. Carregar/padrões e fechar também encerram captura. Sem START, Espaço não abre captura.
@@ -31,19 +31,28 @@ Para atualizar avaliações sem recompilar, edite `effect-assessments.json` com 
 | 2º Flow-Aware Shaping | Caminho anterior: buckets independentes de 8 KiB/s por fluxo IPv4 TCP/UDP, FIFO por fluxo e round-robin. |
 | 3º Outbound Freeze | Caminho anterior: retém saída até fim/cancelamento, libera FIFO. |
 | Bandwidth Shaping | Caminho anterior: serialização agregada a 16 KiB/s por bytes IP. |
+| Packet Duplication | UDP IPv4/IPv6, até 1400 bytes IP, uma cópia extra por datagrama; máximo 16 cópias/32 KiB por pulso. TCP/impostor passam. |
+| ECN Congestion Marking | TCP/UDP IPv4/IPv6 até 4096 bytes IP: só ECT(0)/ECT(1) vira CE; Not-ECT/CE passam sem mudança. |
+| DSCP Traffic Marking | TCP/UDP IPv4/IPv6 até 4096 bytes IP: DSCP configurável 0–63, padrão 8; preserva ECN. Valor congelado no início do pulso. |
+| MTU / Fragmentation · laboratório local | Somente sondas UDP IPv4 nos próprios sockets loopback, DF solicitado ligado/desligado, MTU lido da interface; relatório de entrega exata. Não é fragmentação GLOBAL. |
+| TCP ACK Pacing | Só ACK puro TCP IPv4/IPv6, FIFO por fluxo: primeiro alvo 8 ms e espaçamento 12 ms, TTL 64 ms limitado ao pulso; round-robin até 128 fluxos/512 pacotes/768 KiB. |
+
+Cinco técnicas novas ficam “Não avaliado”, em todos os tempos sem observações do proprietário. Fragmentos IPv4, extensões IPv6, ICMP e formatos incompatíveis passam sem modificação. ECN/DSCP preservam payload/flow label e recalculam checksums IPv4/TCP/UDP. ECN não prova resposta do endpoint; DSCP não obriga prioridade e pode ser removido pela rede. Duplicação pode prejudicar aplicações UDP; nunca fabrica ACK TCP. ACK piggyback/data/controle drena ACKs pendentes do mesmo fluxo antes de passar; sobrecarga cancela/drena o pulso (fail-open). STOP/fim podem comprimir intervalos para priorizar entrega segura; Windows não garante deadlines em tempo real.
+
+O laboratório MTU não altera interface/registro/rotas/firewall/IPv6 PMTUD. Tamanhos de payload 128/1472/4000/60000 bytes, máximo oito sondas por pulso, canceláveis; relatório pode ser parcial em pulso curto/STOP. O maior IP entregue é um limite inferior local, não PMTU WAN. Loopback não demonstra fragmentação/reassemblagem: nenhuma alegação de fragmentação é feita nem fragmentos globais são emitidos.
 
 
 Por decisão posterior do proprietário (#26), TODOS os oito modos da #21 saíram do seletor: Time-Slot, Sawtooth, Correlated Outbound Jitter, Two-Phase, Heavy-Tail, Adaptive Queue, Gap e Gilbert–Elliott. Em particular GE, que travou o jogo segundo relato, não pode ser selecionado/acionado pela UI nem por settings antigos. Não serão reintroduzidos sem pedido explícito. Suas identidades/parser e testes internos permanecem para compatibilidade/regressão; não são opções escondidas ou presets.
 
 Os quatro favoritos mantêm algoritmos, suporte de protocolos e fail-open anteriores, inclusive Flow-Aware para fluxo não identificável. O filtro GLOBAL não é reduzido para UDP/IPv4. Timer/deadline limitam pulso a 800 ms; STOP/fim priorizam liberação segura sobre pacing, e Windows não é tempo real. Não há promessa de ordenação global entre fluxos ou de efeito em jogo.
 
-Payload, checksum e WINDIVERT_ADDRESS original não são alterados. Filas compartilham packet lock e handle epoch do motor; sem task/timer por pacote. STOP drena antes de fechar; nada pendente é reaproveitado no restart. Telemetria interna distingue retenção/liberação/falhas; falha de envio dispara parada de segurança. Não se promete zero perda real de kernel/driver/rede.
+Os quatro favoritos, duplicação e ACK pacing preservam payload/checksums/endereço capturado. Marcação ECN/DSCP altera somente Traffic Class e checksums necessários, com flags de validade correspondentes; direção/interface/timestamp são preservados. Filas compartilham packet lock e handle epoch do motor; sem task/timer por pacote. STOP drena antes de fechar; nada pendente é reaproveitado no restart. Telemetria interna distingue retenção/liberação/falhas; falha de envio dispara parada de segurança. Não se promete zero perda real de kernel/driver/rede.
 
 ## Configurações e legado
 
-Somente os quatro acima são selecionáveis. Os oito rejeitados, Packet Size-Aware, inbound, duplex e reordering antigo NÃO estão no dropdown. Não existe checkbox de consentimento por efeito. Enum append-only: todos IDs 0–30 preservados. Parser e APIs/schedulers legados permanecem internos para leitura/regressão, inacessíveis pelos controles de produção.
+Somente os quatro favoritos + cinco técnicas acima são selecionáveis. Os oito rejeitados, Packet Size-Aware, inbound, duplex e reordering antigo NÃO estão no dropdown. Não existe checkbox de consentimento por efeito. Enum append-only: todos IDs 0–30 preservados, cinco técnicas 31–35. Parser e APIs/schedulers legados permanecem internos para leitura/regressão, inacessíveis pelos controles de produção.
 
-Efeito salvo removido deixa seleção indisponível: START, pulso e Salvar ficam bloqueados até escolha explícita de um dos quatro. Carregar não regrava nem substitui por favorito silenciosamente; tempo/campos/enums antigos permanecem. Após escolha válida, Salvar grava só a seleção válida em `%LOCALAPPDATA%/DarkDesync/settings.json`. Captura efetiva da UI é sempre Outbound GLOBAL, sem PID; legado estrito PID/FLOW permanece interno aos testes e exige tuplas comprovadas.
+Efeito salvo removido deixa seleção indisponível: START, pulso e Salvar ficam bloqueados até escolha explícita de uma opção suportada. Carregar não regrava nem substitui por favorito silenciosamente; tempo/campos/enums antigos permanecem. Após escolha válida, Salvar grava só a seleção válida em `%LOCALAPPDATA%/DarkDesync/settings.json`. Captura efetiva da UI é sempre Outbound GLOBAL, sem PID; legado estrito PID/FLOW permanece interno aos testes e exige tuplas comprovadas.
 
 ## Windows x64 — build e teste
 
