@@ -58,6 +58,19 @@ public sealed class TemporalSchedulingTests
     }
     [Theory]
     [InlineData(DiagnosticMode.InterPacketGapEqualization)] [InlineData(DiagnosticMode.DeadlineAwareScheduling)]
+    public void OverloadMaximumAgeAndMonotonicClamp_NoFuturePacketRequired(DiagnosticMode mode)
+    {
+        var q=new TemporalPulseQueue(mode,TemporalPulseQueue.T(1800));
+        for(int i=0;i<512;i++)Assert.True(q.Enqueue(Flow,P((byte)i),TemporalPulseQueue.T(1000)));
+        Assert.False(q.Enqueue(Flow,P(1),TemporalPulseQueue.T(999)));
+        int bound=mode==DiagnosticMode.InterPacketGapEqualization?1096:1048;
+        int count=0;while(q.TryDequeue(TemporalPulseQueue.T(bound),out _))count++;
+        Assert.Equal(512,count);Assert.Equal(0,q.Bytes);Assert.False(q.TryDequeue(TemporalPulseQueue.T(1000),out _));
+        var single=new TemporalPulseQueue(mode,TemporalPulseQueue.T(1800));single.Enqueue(Flow,P(9),TemporalPulseQueue.T(1000));
+        Assert.True(single.TryDequeue(TemporalPulseQueue.T(bound),out var p));Assert.Equal(9,p!.Data[0]);
+    }
+    [Theory]
+    [InlineData(DiagnosticMode.InterPacketGapEqualization)] [InlineData(DiagnosticMode.DeadlineAwareScheduling)]
     public void EngineMixedProtocolsStopOverflowAndRestart_NoStaleOrModifiedBytes(DiagnosticMode mode)
     {
         using var e=DiagnosticModesTests.Engine();ArmedCaptureTests.ModelArm(e);

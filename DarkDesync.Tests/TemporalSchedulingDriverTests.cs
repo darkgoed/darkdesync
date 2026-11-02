@@ -63,6 +63,28 @@ public sealed class TemporalSchedulingDriverTests(ITestOutputHelper output)
         output.WriteLine($"{mode} IPv{(v6?6:4)} own UDP native A/B: baseline gaps ms={JsonSerializer.Serialize(a)}; effect gaps ms={JsonSerializer.Serialize(b)}; pre/post kernel QPC latencies ms={JsonSerializer.Serialize(latency)}; FIFO/exact payloads; STOP/restart sentinel drained, no late copy. Timing is local Windows measurement, not real-time guarantee.");
     }
 
+    [GlobalDriverTheory,Trait("Category","Driver")]
+    [InlineData(DiagnosticMode.InterPacketGapEqualization,false)] [InlineData(DiagnosticMode.InterPacketGapEqualization,true)]
+    [InlineData(DiagnosticMode.DeadlineAwareScheduling,false)] [InlineData(DiagnosticMode.DeadlineAwareScheduling,true)]
+    public async Task RealTcpPayloadSurvivesPulseAndStop(DiagnosticMode mode,bool v6)
+    {
+        IPAddress ip=v6?IPAddress.IPv6Loopback:IPAddress.Loopback;var listener=new TcpListener(ip,0);listener.Start();
+        try
+        {
+            using var client=new TcpClient(v6?AddressFamily.InterNetworkV6:AddressFamily.InterNetwork);client.NoDelay=true;
+            await client.ConnectAsync(ip,((IPEndPoint)listener.LocalEndpoint).Port);using var server=await listener.AcceptTcpClientAsync();server.NoDelay=true;
+            using var e=DiagnosticModesTests.Engine();e.UpdateFilter(FilterMode.LegacyGlobalOutbound);Assert.True(e.BeginLegacyGlobalContinuous(DiagnosticMode.None));
+            byte[] bytes=Enumerable.Range(0,2048).Select(i=>(byte)(i*29)).ToArray();
+            Assert.True(e.TriggerArmedEffect(mode,800));var clock=Stopwatch.StartNew();
+            await client.GetStream().WriteAsync(bytes);var received=new byte[bytes.Length];
+            await server.GetStream().ReadExactlyAsync(received).AsTask().WaitAsync(TimeSpan.FromSeconds(3));Assert.Equal(bytes,received);
+            Assert.True(e.TemporalPacketsHeld>0);e.Stop();Assert.Equal(e.TemporalPacketsHeld,e.TemporalPacketsReleased);
+            await server.GetStream().WriteAsync(bytes);await client.GetStream().ReadExactlyAsync(received).AsTask().WaitAsync(TimeSpan.FromSeconds(3));Assert.Equal(bytes,received);
+            output.WriteLine($"{mode} real TCP IPv{(v6?6:4)}: exact 2048-byte stream delivered during pulse, elapsed {clock.Elapsed.TotalMilliseconds:F2} ms, held/released {e.TemporalPacketsHeld}/{e.TemporalPacketsReleased}; reverse stream exact after STOP. No retransmission advantage claim.");
+        }
+        finally {listener.Stop();}
+    }
+
     [GlobalDriverTheory,InlineData(true),Trait("Category","Driver")]
     public void ReadOnlyTopologyInventoryDoesNotPretendSteeringOrNatProof(bool readOnly)
     {
