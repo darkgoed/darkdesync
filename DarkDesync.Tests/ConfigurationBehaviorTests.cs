@@ -9,7 +9,7 @@ using Xunit;
 namespace DarkDesync.Tests;
 public sealed class ConfigurationBehaviorTests
 {
-    private static void WithVm(Action<MainViewModel, PacketEngine, DesyncController, string> action)
+    internal static void WithVm(Action<MainViewModel, PacketEngine, DesyncController, string> action)
     {
         Exception? failure = null;
         var thread = new Thread(() =>

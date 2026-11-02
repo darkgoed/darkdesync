@@ -22,6 +22,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (!SetProperty(ref _cycleProfileEnabled, value)) return;
             if (_packetEngine != null) _packetEngine.CycleDropEnabled = value;
             if (!value) CancelCurrentPulse();
+            RefreshNetworkDiagnostics();
         }
     }
     private string _selectedThrottleMode = "No atalho / ciclo";
@@ -126,7 +127,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
                 AddLog($"[PROCESSO] Alvo: {value?.ProcessName ?? "Nenhum"} (PID: {value?.ProcessId ?? 0})");
 
-                ApplyFilterMode();
+                if (!SelectVerifiedScopeForScopedProfile()) ApplyFilterMode();
             }
         }
     }
@@ -299,6 +300,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (!SetProperty(ref _experimentalOptIn, value)) return;
             CancelCurrentPulse();
             if (_packetEngine != null) _packetEngine.ExperimentalReorderingConsent = value;
+            RefreshNetworkDiagnostics();
         }
     }
 
@@ -320,6 +322,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     _packetEngine?.Stop();
                     _packetEngine?.ConfigureScopedProfile(ModeCatalog.Parse(value));
                 }
+                _startError = null;
+                SelectVerifiedScopeForScopedProfile();
                 RefreshNetworkDiagnostics();
                 OnPropertyChanged(nameof(IsBurstLossVisible));
                 OnPropertyChanged(nameof(IsAsymmetricLossVisible));
@@ -435,7 +439,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public string StatusText => State switch
+    public string StatusText => _packetEngine is { IsCaptureRequested: true, IsRunning: false } ? "AGUARDANDO" : State switch
     {
         DesyncStateMachine.State.Idle => "IDLE",
         DesyncStateMachine.State.Armed => "ARMADO",
@@ -513,15 +517,45 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
     public string ScopedTuplesText => (_packetEngine?.ScopeStatus.Tuples ?? "") + "\nNETWORK: " + (_packetEngine?.ScopeStatus.Filter ?? "false");
 
+    private string? _startError;
+    private string _startStatusText = "Selecione o processo e pressione START. Captura parada.";
+    public string StartStatusText { get => _startStatusText; private set => SetProperty(ref _startStatusText, value); }
+
+    // UI-only migration. No settings write and no payload capture on selection.
+    private bool SelectVerifiedScopeForScopedProfile()
+    {
+        if (!PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText)) ||
+            !IsLegacyGlobalSelected || SelectedProcess is not { ProcessId: > 0 }) return false;
+        SelectedFilterModeText = FilterModeOptions[2];
+        AddLog("[ESCOPO] Perfil estrito: filtro UI alterado para Conexões verificadas da aplicação; configuração não salva. Pressione START.");
+        return true;
+    }
+
     private void RefreshNetworkDiagnostics()
     {
         if (_packetEngine == null) return;
         IsEngineRunning = _packetEngine.IsRunning;
+        State = _controller.CurrentState;
         OnPropertyChanged(nameof(EngineToggleText));
         OnPropertyChanged(nameof(NetworkDiagnosticsText));
         OnPropertyChanged(nameof(ScopedTuplesText));
+        OnPropertyChanged(nameof(StatusText));
         var s = _packetEngine.ScopeStatus;
         FilterStatusText = IsLegacyGlobalSelected ? "Outbound global" : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}";
+        bool scoped = PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText));
+        StartStatusText = _startError ??
+            (scoped && (SelectedProcess is not { ProcessId: > 0 } || IsLegacyGlobalSelected)
+                ? "Selecione a aplicação-alvo. Este perfil exige PID estrito; o filtro mudará para Conexões verificadas da aplicação. Depois pressione START."
+            : IsExperimentalSelected && !ExperimentalOptIn
+                ? "Ative o Opt-in EXPERIMENTAL para reordenar somente UDP loopback próprio. Depois pressione START."
+            : !CycleProfileEnabled ? "Efeito desabilitado. Marque Habilitado para permitir o pulso; START somente arma a captura."
+            : s.Requested && !s.Running
+                ? "Aguardando conexões do processo; reconecte para observar UDP. Captura ainda inativa; STOP cancela a espera. " + s.Reason
+            : s.Running ? (_packetEngine.IsEffectActive ? "Pulso ativo. " : "Captura ARMADA, sem efeito. Espaço ou Pulso manual dispara o efeito. ") +
+                (IsLegacyGlobalSelected ? "GLOBAL outbound." : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}. " + (s.UdpScoped == 0 ? "Nenhum UDP incluído; reconecte para observar UDP." : ""))
+            : s.ProcessId != 0 ? "Captura parada. Pressione START. " + s.Reason
+            : IsLegacyGlobalSelected ? "GLOBAL outbound parado. START arma sem efeito (quatro favoritos)."
+            : "Selecione a aplicação-alvo e pressione START; captura exige PID vivo e conexões verificadas.");
     }
     public string EngineStatusColor => IsEngineRunning ? "#06D6A0" : "#E63946";
 
@@ -631,7 +665,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _packetEngine.ErrorOccurred += err => _dispatcher.InvokeAsync(() =>
             {
                 AddLog($"[ERRO MOTOR] {err}");
-                FilterStatusText = err;
+                if (!_packetEngine.IsCaptureRequested && _packetEngine.ScopeStatus.Reason.Contains(err)) _startError = err;
+                RefreshNetworkDiagnostics();
                 IsEngineRunning = _packetEngine.IsRunning;
             });
         }
@@ -641,7 +676,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             // Snapshot acceptance at the physical edge, not after a queued START.
             // No packet locks or native work on the low-level hook thread.
-            if (_packetEngine is not { IsCaptureRequested: true } ||
+            if (_packetEngine is not { IsCaptureRequested: true, IsRunning: true } ||
                 _packetEngine.StateMachine.Current != DesyncStateMachine.State.Armed) return;
             long epoch = _packetEngine.ArmedGeneration;
             _dispatcher.InvokeAsync(() =>
@@ -684,6 +719,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public void EnsureEngineRunning(bool startCapture = true)
     {
+        if (startCapture)
+        {
+            _startError = null;
+            SelectVerifiedScopeForScopedProfile();
+            if ((!IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 }) ||
+                (IsExperimentalSelected && !ExperimentalOptIn))
+            {
+                RefreshNetworkDiagnostics();
+                AddLog("[PREFLIGHT] " + StartStatusText);
+                return;
+            }
+        }
         if (_packetEngine != null)
         {
             _packetEngine.ThrottleEnabled = ThrottleEnabled;
@@ -710,6 +757,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     FilterStatusText = $"Filtro: {_packetEngine.CurrentFilter}";
                     AddLog($"[MOTOR] Captura WinDivert iniciada por ação explícita ({_packetEngine.CurrentFilter}).");
                 }
+                else if (!_packetEngine.IsCaptureRequested) _startError = "Não foi possível iniciar: " + _packetEngine.ScopeStatus.Reason;
+                RefreshNetworkDiagnostics();
+                if (!ok) AddLog("[PREFLIGHT] " + StartStatusText);
             }
         }
     }
@@ -729,6 +779,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void ApplyFilterMode()
     {
+        _startError = null;
         OnPropertyChanged(nameof(IsCustomFilterVisible));
         var mode = GetFilterMode();
         uint pid = SelectedProcess?.ProcessId ?? 0;
@@ -745,10 +796,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         if (_packetEngine is not { IsCaptureRequested: true, IsRunning: true })
         {
+            RefreshNetworkDiagnostics();
             AddLog("[AVISO] Pressione START antes do Espaço/pulso manual. O atalho não inicia captura.");
             return;
         }
-        if (!CycleProfileEnabled) return; // Hidden legacy throttle/drop settings never select an effect.
+        if (!CycleProfileEnabled || (IsExperimentalSelected && !ExperimentalOptIn))
+        { RefreshNetworkDiagnostics(); return; } // Hidden legacy settings never select an effect.
 
         var diagMode = ModeCatalog.Parse(_selectedDiagnosticModeText);
 
@@ -756,6 +809,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         int duration = DiagnosticCycleDurationMs;
         bool cycleStarted = _packetEngine.TriggerArmedEffect(diagMode, duration);
         if (!cycleStarted) AddLog("[AVISO] Não foi possível iniciar ciclo.");
+        RefreshNetworkDiagnostics();
     }
 
     private void CancelCurrentPulse()
@@ -768,11 +822,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         CancelCurrentPulse();
         if (_packetEngine is { IsRunning: false }) _packetEngine.Stop(); // Also stop pending UDP observation.
+        _startError = null;
+        RefreshNetworkDiagnostics();
         AddLog("[SISTEMA] Ciclo cancelado pelo usuário.");
     }
 
     private void ExecuteToggleEngine()
     {
+        _startError = null;
+        SelectVerifiedScopeForScopedProfile();
         if (IsLegacyGlobalSelected)
         {
             if (_packetEngine == null) return;
@@ -789,6 +847,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 if (PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText)))
                 {
                     AddLog("[BLOQUEADO] Este perfil exige PID estrito; GLOBAL permanece disponível só para os quatro perfis aprovados.");
+                    RefreshNetworkDiagnostics();
                     return;
                 }
                 _packetEngine.ConfigureScopedProfile(DiagnosticMode.None);
@@ -813,6 +872,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             EnsureEngineRunning();
         }
+        RefreshNetworkDiagnostics();
     }
 
     public void LoadSettings()

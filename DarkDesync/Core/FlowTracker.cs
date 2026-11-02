@@ -19,6 +19,7 @@ public sealed class FlowTracker : IDisposable
     private Task? _worker;
     private UdpFlowLedger? _ledger;
     private volatile bool _healthy;
+    public string? LastError { get; private set; }
     public event Action<string>? Failed;
     public event Action? Changed;
     public bool IsHealthy => _healthy && _process is { HasExited: false };
@@ -33,6 +34,7 @@ public sealed class FlowTracker : IDisposable
         {
             if (pid != 0 && IsHealthy && _ledger?.ProcessId == pid) return true;
             StopCore();
+            LastError = null;
             if (pid == 0) return false;
             try
             {
@@ -57,6 +59,7 @@ public sealed class FlowTracker : IDisposable
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "UDP flow observation blocked for PID {Pid}", pid);
+                LastError = "Observação FLOW indisponível: " + DescribeError(ex);
                 StopCore();
                 return false;
             }
@@ -102,9 +105,13 @@ public sealed class FlowTracker : IDisposable
         {
             _healthy = false;
             _logger.LogWarning(ex, "UDP ownership evidence lost");
-            Failed?.Invoke("Observação UDP perdida; captura parada por segurança.");
+            LastError = "Observação UDP perdida; captura parada por segurança: " + DescribeError(ex);
+            Failed?.Invoke(LastError);
         }
     }
+
+    private static string DescribeError(Exception ex) => ex is System.ComponentModel.Win32Exception win32
+        ? $"{ex.Message} (Win32 {win32.NativeErrorCode})" : ex.Message;
 
     public void Dispose() => Stop();
 }

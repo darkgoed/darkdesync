@@ -337,7 +337,13 @@ public sealed class PacketEngine : IDisposable
         }
         _captureRequested = true;
         ReconcileScope();
-        if (!_isRunning) ErrorOccurred?.Invoke("Captura bloqueada/aguardando tupla segura. " + ScopeStatus.Reason);
+        if (_captureRequested && !_isRunning && UdpFlowsOverride == null && !_flowTracker.IsHealthy)
+        {
+            _lastCaptureError = _flowTracker.LastError ?? "Observação FLOW indisponível; verifique driver/permissões.";
+            StopCore();
+            Volatile.Write(ref _scopeStatus, ScopeStatus with { Reason = _lastCaptureError });
+            ErrorOccurred?.Invoke(_lastCaptureError);
+        }
         return _isRunning;
     }
 
@@ -476,8 +482,9 @@ public sealed class PacketEngine : IDisposable
                 FilterBuilder.BuildScopedFilter(eligible, restriction, IsScopedProfile(_armedScopeProfile));
             if (filter != _currentFilter || (_captureRequested && filter != "false" && !_isRunning))
                 ReplaceNetworkScope(filter, eligible);
+            if (!_captureRequested && _armedCapture) StopCore(); // Failed NETWORK open must revoke arming too.
             bool observing = UdpFlowsOverride != null || _flowTracker.IsHealthy;
-            string reason = !observing ? "Observação FLOW indisponível; UDP não autorizado. Verifique driver/permissões." :
+            string reason = !observing ? (_flowTracker.LastError ?? "Observação FLOW indisponível; UDP não autorizado. Verifique driver/permissões.") :
                 udp.Length == 0 ? "Nenhum fluxo UDP observado. Ative observação antes de entrar na experiência; saia e entre/reconecte. UDP antigo não é reconstruído." :
                 eligibleUdp.Length == 0 ? "UDP observado, mas socket ausente, compartilhado ou propriedade ambígua: UDP recusado." :
                 "Tuplas UDP verificadas; descobertas e revogações atualizam NETWORK automaticamente.";
@@ -495,9 +502,10 @@ public sealed class PacketEngine : IDisposable
         catch (Exception ex)
         {
             _lastCaptureError = "Identidade/escopo indisponível: " + ex.Message;
-            ReplaceNetworkScope("false", []);
+            StopCore();
             Volatile.Write(ref _scopeStatus, ScopeStatus with { Running = false, TcpScoped = 0, UdpScoped = 0,
                 Reason = _lastCaptureError, Filter = "false", Tuples = "" });
+            ErrorOccurred?.Invoke(_lastCaptureError);
         }
     }
 
@@ -759,31 +767,34 @@ public sealed class PacketEngine : IDisposable
     private void ReplaceNetworkScope(string filter, ProcessNetworkScanner.ProcessEndpoint[] eligible)
     {
         _reconfiguring = true;
-        RetireCaptureEpoch(); // No packet/handle lock held while joining Recv.
-        lock (_packetLock)
+        try
         {
-            if (IsScopedProfile(_armedScopeProfile)) CancelArmedEffectLocked();
-            else FlushThrottleQueueLocked();
-            CloseNetworkHandle();
-            _scopedConnections = [];
-            _currentFilter = "false";
-            _isRunning = false;
-            if (filter != "false" && OpenNetworkHandle(filter))
+            RetireCaptureEpoch(); // No packet/handle lock held while joining Recv.
+            lock (_packetLock)
             {
-                _cts ??= new CancellationTokenSource();
-                _stopping = false;
-                _scopedConnections = eligible;
-                _currentFilter = filter;
-                _isRunning = true;
-                var epoch = _epoch = new CaptureEpoch(_networkHandle);
-                var token = _cts.Token;
-                _captureTask = Task.Factory.StartNew(() => CaptureLoop(token, epoch), CancellationToken.None,
-                    TaskCreationOptions.LongRunning, TaskScheduler.Default);
-                _throttleReleaseTask ??= Task.Run(() => ThrottleReleaseLoop(token));
+                if (IsScopedProfile(_armedScopeProfile)) CancelArmedEffectLocked();
+                else FlushThrottleQueueLocked();
+                CloseNetworkHandle();
+                _scopedConnections = [];
+                _currentFilter = "false";
+                _isRunning = false;
+                if (filter != "false" && OpenNetworkHandle(filter))
+                {
+                    _cts ??= new CancellationTokenSource();
+                    _stopping = false;
+                    _scopedConnections = eligible;
+                    _currentFilter = filter;
+                    _isRunning = true;
+                    var epoch = _epoch = new CaptureEpoch(_networkHandle);
+                    var token = _cts.Token;
+                    _captureTask = Task.Factory.StartNew(() => CaptureLoop(token, epoch), CancellationToken.None,
+                        TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                    _throttleReleaseTask ??= Task.Run(() => ThrottleReleaseLoop(token));
+                }
+                else if (filter != "false") _captureRequested = false;
             }
-            else if (filter != "false") _captureRequested = false;
-            _reconfiguring = false;
         }
+        finally { _reconfiguring = false; }
     }
 
     private void RetireCaptureEpoch()
@@ -845,11 +856,14 @@ public sealed class PacketEngine : IDisposable
         _dropPercentage = Math.Clamp(percentage, 0, 100);
     }
 
+    // Failure-only seam: never supplies a fake successful native handle.
+    internal Func<string, int>? NetworkOpenFailureOverride { get; set; }
     private bool OpenNetworkHandle(string filter)
     {
         lock (_handleLock)
         {
-            _networkHandle = WinDivertNative.WinDivertOpen(
+            int injectedError = NetworkOpenFailureOverride?.Invoke(filter) ?? 0;
+            _networkHandle = injectedError != 0 ? WinDivertNative.InvalidHandle : WinDivertNative.WinDivertOpen(
                 filter,
                 WinDivertNative.Layer.Network,
                 (short)0,
@@ -857,7 +871,7 @@ public sealed class PacketEngine : IDisposable
 
             if (_networkHandle == WinDivertNative.InvalidHandle)
             {
-                int err = Marshal.GetLastWin32Error();
+                int err = injectedError != 0 ? injectedError : Marshal.GetLastWin32Error();
                 _logger.LogError("WinDivertOpen failed for filter '{Filter}': Win32 error {Error}", filter, err);
 
                 string errorMsg = err switch
@@ -869,8 +883,8 @@ public sealed class PacketEngine : IDisposable
                     _ => $"Erro WinDivert #{err}"
                 };
 
-                _lastCaptureError = errorMsg;
-                ErrorOccurred?.Invoke(errorMsg);
+                _lastCaptureError = $"{errorMsg} (Win32 {err})";
+                ErrorOccurred?.Invoke(_lastCaptureError);
                 return false;
             }
 

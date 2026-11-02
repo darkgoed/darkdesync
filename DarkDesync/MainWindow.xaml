@@ -37,6 +37,7 @@
       <TextBlock Text="Filtro de rede" FontWeight="SemiBold" Margin="0,0,0,8" /><ComboBox ItemsSource="{Binding FilterModeOptions}" SelectedItem="{Binding SelectedFilterModeText}" FontSize="11" ToolTip="{Binding SelectedFilterModeText}" />
 
       <TextBox Text="{Binding CustomFilterText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsCustomFilterVisible, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0" ToolTip="Restrição adicional WinDivert; nunca amplia o alvo" />
+      <TextBlock x:Name="StartStatus" Text="{Binding StartStatusText}" TextWrapping="Wrap" Margin="0,12,0,0" />
       <Expander Header="Diagnóstico de captura" Foreground="{StaticResource TextMutedBrush}" Margin="0,12,0,0"><StackPanel>
        <TextBlock x:Name="NetworkScopeDiagnostics" Text="{Binding NetworkDiagnosticsText}" Style="{StaticResource HelpText}" />
        <TextBlock Text="{Binding ScopedTuplesText}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="10" />
