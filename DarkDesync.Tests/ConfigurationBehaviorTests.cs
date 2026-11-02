@@ -102,6 +102,8 @@ public sealed class ConfigurationBehaviorTests
     [InlineData(DiagnosticMode.SlottedTransmission)]
     [InlineData(DiagnosticMode.SawtoothDelay)]
     [InlineData(DiagnosticMode.AdaptiveFreeze)]
+    [InlineData(DiagnosticMode.HoldAndDrainShaping)]
+    [InlineData(DiagnosticMode.RateStepShaping)]
     public void LegacyEffectMigration_IsExplicit_DoesNotRewriteSource_AndCannotDrop(DiagnosticMode oldMode) => WithVm((vm, engine, controller, dir) =>
     {
         var store = new SettingsStore(Path.Combine(dir, "settings.json"));
@@ -129,8 +131,7 @@ public sealed class ConfigurationBehaviorTests
 
     [Theory]
     [InlineData("Outbound Freeze", DiagnosticMode.OutboundFreeze)]
-    [InlineData("Hold-and-Drain Shaping", DiagnosticMode.HoldAndDrainShaping)]
-    [InlineData("Rate-Step Shaping", DiagnosticMode.RateStepShaping)]
+
     [InlineData("Dual Token Bucket", DiagnosticMode.DualTokenBucket)]
     [InlineData("Bandwidth Shaping", DiagnosticMode.BandwidthShaping)]
     [InlineData("Flow-Aware Shaping", DiagnosticMode.FlowAwareShaping)]
@@ -145,6 +146,25 @@ public sealed class ConfigurationBehaviorTests
         Assert.Equal(mode, engine.ActiveDiagnosticMode);
         Assert.True(DiagnosticModesTests.Capture(engine));
         engine.Stop(); Assert.Equal(0, engine.PacketsDropped);
+    });
+
+    [Theory]
+    [InlineData(DiagnosticMode.InboundBandwidthShaping)]
+    [InlineData(DiagnosticMode.CorrelatedInboundJitter)]
+    [InlineData(DiagnosticMode.PacketSizeAwareShaping)]
+    [InlineData(DiagnosticMode.AsymmetricDuplexShaping)]
+    [InlineData(DiagnosticMode.ControlledPacketReordering)]
+    public void ScopedChoicesRoundtrip_ConsentNeverPersists_AndNoCaptureOnLoad(DiagnosticMode mode) => WithVm((vm, engine, controller, dir) =>
+    {
+        Assert.Equal(9, vm.DiagnosticModeOptions.Count);
+        vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode); vm.ExperimentalOptIn = true;
+        vm.SaveSettingsCommand.Execute(null);
+        var store = new SettingsStore(Path.Combine(dir, "settings.json"));
+        Assert.Equal(mode, store.Load().DiagnosticMode);
+        Assert.DoesNotContain("OptIn", File.ReadAllText(store.FilePath));
+        vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null);
+        Assert.Equal(ModeCatalog.Name(mode), vm.SelectedDiagnosticModeText); Assert.False(vm.ExperimentalOptIn);
+        Assert.False(engine.IsCaptureRequested); Assert.Equal(200, vm.DiagnosticCycleDurationMs);
     });
 
     [Fact]

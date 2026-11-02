@@ -34,7 +34,7 @@ internal static class Program
             var controls = Descendants(window).ToArray();
             var mode = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             Require(controls.OfType<ComboBox>().Count(c => ReferenceEquals(c.ItemsSource, vm.AvailableHotkeys.Keys)) <= 1, "One hotkey picker");
-            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "Outbound Freeze", "Bandwidth Shaping", "Hold-and-Drain Shaping", "Rate-Step Shaping", "Dual Token Bucket", "Flow-Aware Shaping" }), "Exactly six non-loss effects");
+            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "Outbound Freeze", "Dual Token Bucket", "Bandwidth Shaping", "Flow-Aware Shaping", "Inbound Bandwidth Shaping", "Correlated Inbound Jitter", "Packet Size-Aware Shaping", "Asymmetric Duplex Shaping", "Controlled Packet Reordering — EXPERIMENTAL" }), "Exactly nine effects, rejected modes absent");
             Require(vm.SelectedDiagnosticModeText == "Outbound Freeze" && vm.DiagnosticCycleDurationMs == 200, "Freeze / 200ms defaults");
             Require(controls.OfType<Slider>().Count() == 1, "Only shared pulse slider; retention/loss controls removed");
             Require(!controls.OfType<TextBlock>().Any(t => t.Text.Contains("RETENÇÃO E JITTER")), "Retention panel removed");
@@ -49,13 +49,16 @@ internal static class Program
                 Require(duration.IsVisible, "Diagnostic duration visible inside profile");
 
             }
+            var optIn = controls.OfType<CheckBox>().Single(c => c.Content is string text && text.StartsWith("Opt-in EXPERIMENTAL"));
+            Require(optIn.IsVisible && !vm.ExperimentalOptIn, "Experimental opt-in visible and default off");
+            optIn.IsChecked = true; Pump(); Require(vm.ExperimentalOptIn, "Consent binding");
             vm.BurstLossPercentage = 37; vm.AsymmetricInboundLossPercentage = 12; vm.AsymmetricOutboundLossPercentage = 84;
             vm.SelectedHotkeyName = "F2"; vm.DiagnosticCycleDurationMs = 800;
             vm.SaveSettingsCommand.Execute(null);
             vm.ResetSettingsCommand.Execute(null); Pump();
             Require(vm.DiagnosticCycleDurationMs == 200, "Default 200 ms");
             vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.DiagnosticCycleDurationMs == 800 && vm.SelectedDiagnosticModeText == "Flow-Aware Shaping", "Mode/duration roundtrip");
+            Require(vm.DiagnosticCycleDurationMs == 800 && vm.IsExperimentalSelected && !vm.ExperimentalOptIn, "Experimental mode roundtrip WITHOUT consent");
             Require(vm.BurstLossPercentage == 37 && vm.AsymmetricInboundLossPercentage == 12 && vm.AsymmetricOutboundLossPercentage == 84, "Loss percentages roundtrip");
             Require(vm.SelectedHotkeyName == "F2", "Shared hotkey roundtrip");
             vm.DiagnosticCycleDurationMs = 0; vm.TriggerCycleCommand.Execute(null); Pump();
@@ -120,25 +123,29 @@ internal static class Program
             vm.SelectedThrottleMode = vm.ThrottleModeOptions[1]; Pump();
             Require(engine.IsRunning && engine.StateMachine.Current == DesyncStateMachine.State.Armed,
                 "Legacy controls cannot apply an effect to armed GLOBAL");
-            mode.SelectedItem = "Hold-and-Drain Shaping"; Pump();
+            mode.SelectedItem = "Bandwidth Shaping"; Pump();
             Require(engine.IsRunning && !engine.IsEffectActive && vm.EngineToggleText == "STOP", "Effect change preserves arming without effect");
             vm.DropPercentage = 37; vm.SaveSettingsCommand.Execute(null);
             vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.SelectedDiagnosticModeText == "Hold-and-Drain Shaping" && vm.DropPercentage == 37 && !engine.IsRunning,
+            Require(vm.SelectedDiagnosticModeText == "Bandwidth Shaping" && vm.DropPercentage == 37 && !engine.IsRunning,
                 "Hidden legacy values survive save without being selected as effect");
             vm.SaveSettingsCommand.Execute(null);
             vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.SelectedDiagnosticModeText == "Hold-and-Drain Shaping" && !engine.IsRunning, "Loading never starts capture");
+            Require(vm.SelectedDiagnosticModeText == "Bandwidth Shaping" && !engine.IsRunning, "Loading never starts capture");
             vm.LoadSettingsCommand.Execute(null); Pump();
-            Require(vm.SelectedDiagnosticModeText == "Hold-and-Drain Shaping", "Repeated load is independent of previous mode");
+            Require(vm.SelectedDiagnosticModeText == "Bandwidth Shaping", "Repeated load is independent of previous mode");
             ModelRunning();
             vm.SelectedFilterModeText = vm.FilterModeOptions[0]; Pump();
             Require(!engine.IsRunning && vm.EngineToggleText == "START", "Filter change safely stops GLOBAL");
             vm.SelectedDiagnosticModeText = "Dual Token Bucket"; Pump();
             Require(vm.IsDiagnosticModeSelected && pulseSlider.IsVisible, "Strict effects share the pulse control");
+            ModelRunning();
+            mode.SelectedItem = "Asymmetric Duplex Shaping"; Pump();
+            Require(!engine.IsRunning && vm.EngineToggleText == "START", "New direction scope requires a fresh START");
+            Require(!optIn.IsVisible && !vm.ExperimentalOptIn, "Consent hidden and revoked outside experimental");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
-            Console.WriteLine("PASS: six non-loss choices, minimal controls, 200ms default, WPF bindings, settings, START/Space/STOP lifecycle; no physical keyboard/game claim.");
+            Console.WriteLine("PASS: nine choices, minimal controls, experimental opt-in, 200ms default, WPF bindings, settings, START/Space/STOP lifecycle; no physical keyboard/game claim.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

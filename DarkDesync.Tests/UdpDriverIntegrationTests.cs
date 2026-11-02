@@ -233,14 +233,14 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
         output.WriteLine($"Strict PID {peer.Pid}, {mode}: armed pass-through despite Drop100/continuous throttle; pulse only after START; timer preserved scoped capture; other PID untouched; STOP closed.");
     }
 
-    private static async Task WaitUntil(Func<bool> ready)
+    internal static async Task WaitUntil(Func<bool> ready)
     {
         var clock = Stopwatch.StartNew();
         while (!ready() && clock.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(10);
         Assert.True(ready(), "Timed out waiting for actual driver FLOW/packet evidence");
     }
 
-    private sealed class Peer(Process process, int port) : IDisposable
+    internal sealed class Peer(Process process, int port) : IDisposable
     {
         public int Port { get; } = port;
         public uint Pid => (uint)process.Id;

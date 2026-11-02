@@ -33,5 +33,10 @@ public enum DiagnosticMode
     HoldAndDrainShaping = 14,
     RateStepShaping = 15,
     DualTokenBucket = 16,
-    FlowAwareShaping = 17
+    FlowAwareShaping = 17,
+    InboundBandwidthShaping = 18,
+    CorrelatedInboundJitter = 19,
+    PacketSizeAwareShaping = 20,
+    AsymmetricDuplexShaping = 21,
+    ControlledPacketReordering = 22
 }

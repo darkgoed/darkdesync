@@ -185,7 +185,7 @@ public sealed class PacketEngine : IDisposable
     public long PacketsPassedThrough => Volatile.Read(ref _packetsPassedThrough);
     public long PacketsThrottled => Volatile.Read(ref _packetsThrottled);
     private long _tcpIntercepted, _udpIntercepted, _tcpDropped, _udpDropped, _tcpHeld, _udpHeld;
-    public string ProtocolCounters => $"TCP: capturados {Volatile.Read(ref _tcpIntercepted)}, descartados {Volatile.Read(ref _tcpDropped)}, retidos {Volatile.Read(ref _tcpHeld)} | UDP: capturados {Volatile.Read(ref _udpIntercepted)}, descartados {Volatile.Read(ref _udpDropped)}, retidos {Volatile.Read(ref _udpHeld)}";
+    public string ProtocolCounters => $"TCP: capturados {Volatile.Read(ref _tcpIntercepted)}, descartados {Volatile.Read(ref _tcpDropped)}, retidos {Volatile.Read(ref _tcpHeld)} | UDP: capturados {Volatile.Read(ref _udpIntercepted)}, descartados {Volatile.Read(ref _udpDropped)}, retidos {Volatile.Read(ref _udpHeld)} | pares UDP intencionalmente reordenados (tentativas): {IntentionallyReorderedPairs} | falhas de reinjeção: {PacketsFailedToSend}";
     public long UdpPacketsDropped => Volatile.Read(ref _udpDropped);
     public long UdpPacketsHeld => Volatile.Read(ref _udpHeld);
     public bool IsRunning => _isRunning;
@@ -462,7 +462,18 @@ public sealed class PacketEngine : IDisposable
                 .ThenBy(e => e.LocalPort).ThenBy(e => e.RemoteAddr).ThenBy(e => e.RemotePort).ToArray();
             string restriction = _filterMode == FilterMode.ProcessPorts ? "true" :
                 _filterBuilder.GetFilter(_filterMode, null, _customFilter);
-            string filter = !_captureRequested || restriction == "false" ? "false" : FilterBuilder.BuildScopedFilter(eligible, restriction);
+            if (IsScopedProfile(_armedScopeProfile))
+            {
+                // Profile directions override outbound default, NEVER tuple/PID scope.
+                string direction = _armedScopeProfile is DiagnosticMode.InboundBandwidthShaping or DiagnosticMode.CorrelatedInboundJitter
+                    ? "(inbound or loopback)" : _armedScopeProfile == DiagnosticMode.AsymmetricDuplexShaping ? "true" : "outbound";
+                string protocol = _armedScopeProfile is DiagnosticMode.PacketSizeAwareShaping or DiagnosticMode.ControlledPacketReordering ? "udp" : "(tcp or udp)";
+                restriction = $"not impostor and {direction} and {protocol}" +
+                    (_armedScopeProfile == DiagnosticMode.ControlledPacketReordering ? " and loopback" : "");
+                if (_filterMode == FilterMode.Custom) restriction += $" and ({_filterBuilder.GetFilter(_filterMode, null, _customFilter)})";
+            }
+            string filter = !_captureRequested || restriction == "false" ? "false" :
+                FilterBuilder.BuildScopedFilter(eligible, restriction, IsScopedProfile(_armedScopeProfile));
             if (filter != _currentFilter || (_captureRequested && filter != "false" && !_isRunning))
                 ReplaceNetworkScope(filter, eligible);
             bool observing = UdpFlowsOverride != null || _flowTracker.IsHealthy;
@@ -590,11 +601,54 @@ public sealed class PacketEngine : IDisposable
     private long _effectStartedTicks;
     private long _shapingFinishTicks;
     private PulseShaper? _pulseShaper;
+    private ScopedPulseScheduler? _scopedScheduler;
+    private DiagnosticMode _armedScopeProfile;
+    private long _reorderedPairs;
+    public long IntentionallyReorderedPairs => Interlocked.Read(ref _reorderedPairs);
+    private long _reinjectionFailures;
+    public long PacketsFailedToSend => Interlocked.Read(ref _reinjectionFailures);
+    // Explicit opt-in is session-only, never loaded from a settings file.
+    private bool _experimentalReorderingConsent;
+    public bool ExperimentalReorderingConsent
+    {
+        get { lock (_packetLock) return _experimentalReorderingConsent; }
+        set
+        {
+            lock (_packetLock)
+            {
+                _experimentalReorderingConsent = value;
+                if (!value && _activeDiagnosticMode == DiagnosticMode.ControlledPacketReordering) CancelArmedEffectLocked();
+            }
+        }
+    }
+    private long _scopedInboundHeld, _scopedOutboundHeld;
+    public long ScopedInboundPacketsHeld => Interlocked.Read(ref _scopedInboundHeld);
+    public long ScopedOutboundPacketsHeld => Interlocked.Read(ref _scopedOutboundHeld);
+    public static bool IsScopedProfile(DiagnosticMode mode) => ScopedPulseScheduler.Handles(mode);
+    public bool ConfigureScopedProfile(DiagnosticMode mode)
+    {
+        lock (_lifecycleLock)
+        {
+            if (_captureRequested || _isRunning) return false;
+            _armedScopeProfile = IsScopedProfile(mode) ? mode : DiagnosticMode.None;
+            return true;
+        }
+    }
     internal string? LastShapingFallback { get; private set; }
     private Timer? _effectTimer;
     public bool IsEffectActive
     {
-        get { lock (_packetLock) return _armedCapture && _stateMachine.Current == DesyncStateMachine.State.Active && _timestamp() < _effectDeadline; }
+        get
+        {
+            lock (_packetLock)
+            {
+                // New profiles publish completion only after timer/capture/release
+                // has drained under this lock. Clock expiry alone is NOT a flush.
+                // Capture/release still enforce the deadline before applying effects.
+                bool active = _armedCapture && _stateMachine.Current == DesyncStateMachine.State.Active;
+                return active && (IsScopedProfile(_armedScopeProfile) || _timestamp() < _effectDeadline);
+            }
+        }
     }
 
     private void PrepareArmedCapture()
@@ -631,12 +685,16 @@ public sealed class PacketEngine : IDisposable
             ExpireArmedEffectLocked();
             if (_stateMachine.Current != DesyncStateMachine.State.Armed) return false;
             if (_filterMode == FilterMode.LegacyGlobalOutbound && mode == DiagnosticMode.None) return false;
+            if (IsScopedProfile(mode) && (_filterMode == FilterMode.LegacyGlobalOutbound || _armedScopeProfile != mode ||
+                (mode == DiagnosticMode.ControlledPacketReordering && !ExperimentalReorderingConsent))) return false;
+            if (IsScopedProfile(_armedScopeProfile) && mode != _armedScopeProfile) return false;
             long generation = ++_effectGeneration;
             int duration = Math.Clamp(durationMs, 0, mode == DiagnosticMode.None && _filterMode != FilterMode.LegacyGlobalOutbound ? 10000 : 800);
             _effectStartedTicks = _timestamp();
             _shapingFinishTicks = _effectStartedTicks;
             _effectDeadline = _effectStartedTicks + (long)duration * Stopwatch.Frequency / 1000;
             _pulseShaper = PulseShaper.Handles(mode) ? new PulseShaper(mode, _effectStartedTicks, _effectDeadline) : null;
+            _scopedScheduler = IsScopedProfile(mode) ? new ScopedPulseScheduler(mode, _effectStartedTicks) : null;
             LastShapingFallback = null;
             _activeDiagnosticMode = mode;
             _stateMachine.TryActivateArmed();
@@ -704,7 +762,8 @@ public sealed class PacketEngine : IDisposable
         RetireCaptureEpoch(); // No packet/handle lock held while joining Recv.
         lock (_packetLock)
         {
-            FlushThrottleQueueLocked();
+            if (IsScopedProfile(_armedScopeProfile)) CancelArmedEffectLocked();
+            else FlushThrottleQueueLocked();
             CloseNetworkHandle();
             _scopedConnections = [];
             _currentFilter = "false";
@@ -940,6 +999,11 @@ public sealed class PacketEngine : IDisposable
                 RecordSend(SendPacket(packetBuffer, recvLen, addr));
                 return false; // Even a delayed watchdog/controller cannot affect packets outside the lease.
             }
+
+            if (IsScopedProfile(_armedScopeProfile))
+                return ProcessScopedPacket(packetBuffer, recvLen, addr, active);
+            if (IsScopedProfile(_activeDiagnosticMode))
+            { RecordSend(SendPacket(packetBuffer, recvLen, addr)); return false; }
 
             // All effects, including legacy drop/throttle, require live ownership.
             // Driver-free scheduling tests use SendOverride without starting capture.
@@ -1332,6 +1396,58 @@ public sealed class PacketEngine : IDisposable
         return sourcePort != 0 && destinationPort != 0;
     }
 
+    private bool ProcessScopedPacket(IntPtr buffer, uint length, WinDivertNative.Address native, bool active)
+    {
+        // Same-handle reinjection cannot be recaptured; refuse other injectors too.
+        if (native.Impostor || _filterMode == FilterMode.LegacyGlobalOutbound ||
+            !TryScopedDirection(buffer, length, native, out bool outbound, out var flow))
+        {
+            // Loss of proof must not allow a newer packet to overtake a retained one.
+            CancelArmedEffectLocked(); RecordSend(SendPacket(buffer, length, native)); return false;
+        }
+        if (!active || _activeDiagnosticMode != _armedScopeProfile || _scopedScheduler == null ||
+            (_activeDiagnosticMode is DiagnosticMode.InboundBandwidthShaping or DiagnosticMode.CorrelatedInboundJitter && outbound) ||
+            (_activeDiagnosticMode is DiagnosticMode.PacketSizeAwareShaping or DiagnosticMode.ControlledPacketReordering && (!outbound || flow.Protocol != 17)) ||
+            (_activeDiagnosticMode == DiagnosticMode.ControlledPacketReordering && (!native.Loopback || !ExperimentalReorderingConsent)))
+        { RecordSend(SendPacket(buffer, length, native)); return false; }
+        if (length is 0 or > 1536)
+        { CancelArmedEffectLocked(); RecordSend(SendPacket(buffer, length, native)); return false; }
+        var data = new byte[length]; Marshal.Copy(buffer, data, 0, (int)length);
+        var packet = new ThrottledPacket { Data = data, Length = length, Address = native, TimestampTicks = _timestamp() };
+        if (!_scopedScheduler.Enqueue(packet, flow, packet.TimestampTicks))
+        {
+            LastShapingFallback = $"{_activeDiagnosticMode}: bounded queue/flow/byte capacity; fail-open";
+            CancelArmedEffectLocked(); RecordSend(SendPacket(buffer, length, native)); return false;
+        }
+        Interlocked.Increment(ref _packetsThrottled);
+        if (outbound) Interlocked.Increment(ref _scopedOutboundHeld); else Interlocked.Increment(ref _scopedInboundHeld);
+        return true;
+    }
+
+    private bool TryScopedDirection(IntPtr buffer, uint length, WinDivertNative.Address native,
+        out bool outbound, out PulseShaper.Flow flow)
+    {
+        outbound = native.Outbound; flow = default;
+        if (!TryExtractIpAndPorts(buffer, length, out var source, out var destination, out var sp, out var dp) ||
+            Marshal.ReadByte(buffer, 0) >> 4 != 4 || sp == 0 || dp == 0) return false;
+        byte protocol = Marshal.ReadByte(buffer, 9);
+        // Loopback is always native outbound. Prove full ownership in both directions;
+        // both endpoints owned by this PID is ambiguous and MUST fail open.
+        if (native.Loopback)
+        {
+            if (!System.Net.IPAddress.IsLoopback(source!) || !System.Net.IPAddress.IsLoopback(destination!)) return false;
+            var forward = native; forward.Flags |= 1u << 17;
+            var reverse = native; reverse.Flags &= ~(1u << 17);
+            bool ownsForward = IsAuthorizedTraffic(buffer, length, forward);
+            bool ownsReverse = IsAuthorizedTraffic(buffer, length, reverse);
+            if (ownsForward == ownsReverse) return false;
+            outbound = ownsForward;
+        }
+        else if (!IsAuthorizedTraffic(buffer, length, native)) return false;
+        flow = new(protocol, (outbound ? "out:" : "in:") + source, sp, destination!.ToString(), dp);
+        return true;
+    }
+
     private void RequestSafetyStop(string reason)
     {
         if (!_isRunning || Interlocked.Exchange(ref _safetyStopRequested, 1) != 0) return;
@@ -1476,6 +1592,13 @@ public sealed class PacketEngine : IDisposable
                 SendThrottledPacket(shaped!);
                 return true;
             }
+            if (_scopedScheduler != null)
+            {
+                long before = _scopedScheduler.ReorderedPairs;
+                bool ready = _scopedScheduler.TryDequeue(now, out var scopedPacket);
+                Interlocked.Add(ref _reorderedPairs, _scopedScheduler.ReorderedPairs - before);
+                if (ready) { SendThrottledPacket(scopedPacket!); return true; }
+            }
             if (_throttleQueue.TryPeek(out var oldest))
             {
                 bool effective = IsThrottleEffective;
@@ -1507,6 +1630,11 @@ public sealed class PacketEngine : IDisposable
 
     private void FlushThrottleQueueLocked()
     {
+        if (_scopedScheduler != null)
+        {
+            foreach (var scoped in _scopedScheduler.Drain()) SendThrottledPacket(scoped);
+            _scopedScheduler = null;
+        }
         if (_pulseShaper != null)
         {
             foreach (var shaped in _pulseShaper.Drain()) SendThrottledPacket(shaped);
@@ -1536,6 +1664,7 @@ public sealed class PacketEngine : IDisposable
             Interlocked.Increment(ref _packetsPassedThrough);
         else
         {
+            Interlocked.Increment(ref _reinjectionFailures);
             Interlocked.Increment(ref _packetsDropped);
             _logger.LogWarning("Packet reinjection failed; counted as dropped, not delivered.");
             if (_isRunning) RequestSafetyStop("Reinjeção falhou; captura encerrada por segurança.");

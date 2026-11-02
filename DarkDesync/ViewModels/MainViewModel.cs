@@ -288,7 +288,19 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     // Diagnostic mode selection
     private string _selectedDiagnosticModeText = "Outbound Freeze";
-    public List<string> DiagnosticModeOptions { get; } = new() { "Outbound Freeze", "Bandwidth Shaping", "Hold-and-Drain Shaping", "Rate-Step Shaping", "Dual Token Bucket", "Flow-Aware Shaping" };
+    public List<string> DiagnosticModeOptions { get; } = ModeCatalog.Choices.Keys.ToList();
+    public bool IsExperimentalSelected => ModeCatalog.Parse(_selectedDiagnosticModeText) == DiagnosticMode.ControlledPacketReordering;
+    private bool _experimentalOptIn;
+    public bool ExperimentalOptIn
+    {
+        get => _experimentalOptIn;
+        set
+        {
+            if (!SetProperty(ref _experimentalOptIn, value)) return;
+            CancelCurrentPulse();
+            if (_packetEngine != null) _packetEngine.ExperimentalReorderingConsent = value;
+        }
+    }
 
     public string SelectedDiagnosticModeText
     {
@@ -296,9 +308,18 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (!DiagnosticModeOptions.Contains(value)) return;
+            bool scopeChanges = PacketEngine.IsScopedProfile(ModeCatalog.Parse(value)) ||
+                PacketEngine.IsScopedProfile(ModeCatalog.Parse(_selectedDiagnosticModeText));
             if (SetProperty(ref _selectedDiagnosticModeText, value))
             {
                 CancelCurrentPulse();
+                ExperimentalOptIn = false;
+                OnPropertyChanged(nameof(IsExperimentalSelected));
+                if (scopeChanges)
+                {
+                    _packetEngine?.Stop();
+                    _packetEngine?.ConfigureScopedProfile(ModeCatalog.Parse(value));
+                }
                 RefreshNetworkDiagnostics();
                 OnPropertyChanged(nameof(IsBurstLossVisible));
                 OnPropertyChanged(nameof(IsAsymmetricLossVisible));
@@ -329,7 +350,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    // One pulse duration shared by the six visible effects.
+    // One pulse duration shared by the nine visible effects.
     private int _diagnosticCycleDurationMs = 200;
     public int DiagnosticCycleDurationMs
     {
@@ -681,6 +702,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 var mode = GetFilterMode();
                 uint pid = SelectedProcess?.ProcessId ?? 0;
+                _packetEngine.ConfigureScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText));
                 bool ok = _packetEngine.StartArmed(mode, pid, DropPercentage, CustomFilterText);
                 if (ok)
                 {
@@ -728,16 +750,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         if (!CycleProfileEnabled) return; // Hidden legacy throttle/drop settings never select an effect.
 
-        var diagMode = _selectedDiagnosticModeText switch
-        {
-            "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-            "Hold-and-Drain Shaping" => DiagnosticMode.HoldAndDrainShaping,
-            "Rate-Step Shaping" => DiagnosticMode.RateStepShaping,
-            "Dual Token Bucket" => DiagnosticMode.DualTokenBucket,
-            "Bandwidth Shaping" => DiagnosticMode.BandwidthShaping,
-            "Flow-Aware Shaping" => DiagnosticMode.FlowAwareShaping,
-            _ => DiagnosticMode.OutboundFreeze
-        };
+        var diagMode = ModeCatalog.Parse(_selectedDiagnosticModeText);
 
         AddLog($"[ACIONAMENTO] {source}; escopo: {(IsLegacyGlobalSelected ? "GLOBAL" : "PID estrito")}; efeito: {diagMode}; duração de pulso configurada: {DiagnosticCycleDurationMs} ms");
         int duration = DiagnosticCycleDurationMs;
@@ -773,6 +786,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 CancelCurrentPulse();
                 EnsureEngineRunning(startCapture: false);
+                if (PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText)))
+                {
+                    AddLog("[BLOQUEADO] Este perfil exige PID estrito; GLOBAL permanece disponível só para os quatro perfis aprovados.");
+                    return;
+                }
+                _packetEngine.ConfigureScopedProfile(DiagnosticMode.None);
                 _packetEngine.SetDropPercentage(DropPercentage);
                 bool started = _packetEngine.BeginLegacyGlobalContinuous(DiagnosticMode.None);
                 AddLog(started
@@ -802,7 +821,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var settings = _settingsStore.Load();
             ApplySettings(settings);
-            bool migrated = settings.DiagnosticMode is not (DiagnosticMode.OutboundFreeze or DiagnosticMode.HoldAndDrainShaping or DiagnosticMode.RateStepShaping or DiagnosticMode.DualTokenBucket or DiagnosticMode.BandwidthShaping or DiagnosticMode.FlowAwareShaping);
+            bool migrated = !ModeCatalog.Choices.Values.Contains(settings.DiagnosticMode);
             SettingsStatus = migrated
                 ? "Efeito antigo → Outbound Freeze. Arquivo original mantido até Salvar."
                 : "Configuração carregada · captura parada.";
@@ -827,16 +846,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 BurstLossPercentage = BurstLossPercentage,
                 AsymmetricInboundPercentage = AsymmetricInboundLossPercentage,
                 AsymmetricOutboundPercentage = AsymmetricOutboundLossPercentage,
-                DiagnosticMode = _selectedDiagnosticModeText switch
-                {
-                    "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-                    "Hold-and-Drain Shaping" => DiagnosticMode.HoldAndDrainShaping,
-                    "Rate-Step Shaping" => DiagnosticMode.RateStepShaping,
-                    "Dual Token Bucket" => DiagnosticMode.DualTokenBucket,
-                    "Bandwidth Shaping" => DiagnosticMode.BandwidthShaping,
-                    "Flow-Aware Shaping" => DiagnosticMode.FlowAwareShaping,
-                    _ => DiagnosticMode.OutboundFreeze
-                }
+                DiagnosticMode = ModeCatalog.Parse(_selectedDiagnosticModeText)
             });
             SettingsStatus = "Configuração salva. O alvo deve ser selecionado novamente.";
         }
@@ -848,6 +858,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         var s = settings.Validate();
         CancelCurrentPulse();
+        ExperimentalOptIn = false;
         _packetEngine?.Stop();
         IsEngineRunning = false;
         CycleProfileEnabled = s.CycleProfileEnabled;
@@ -869,16 +880,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         };
         // Legacy fields stay serializable, but cannot activate hidden loss/throttle paths.
         // Load never writes the source file; the UI reports the safe effect migration.
-        SelectedDiagnosticModeText = s.DiagnosticMode switch
-        {
-            DiagnosticMode.OutboundFreeze => "Outbound Freeze",
-            DiagnosticMode.HoldAndDrainShaping => "Hold-and-Drain Shaping",
-            DiagnosticMode.RateStepShaping => "Rate-Step Shaping",
-            DiagnosticMode.DualTokenBucket => "Dual Token Bucket",
-            DiagnosticMode.BandwidthShaping => "Bandwidth Shaping",
-            DiagnosticMode.FlowAwareShaping => "Flow-Aware Shaping",
-            _ => "Outbound Freeze"
-        };
+        SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);
         CustomFilterText = s.CustomFilter;
         ApplyFilterMode();
         SettingsStatus = "Padrões restaurados • captura parada. Salve para manter.";
