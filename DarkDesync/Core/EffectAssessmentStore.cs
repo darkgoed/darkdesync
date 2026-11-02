@@ -27,10 +27,11 @@ public sealed class EffectAssessmentStore
         if (new FileInfo(path).Length > 65536) throw new InvalidDataException("Assessment file exceeds 64 KiB.");
         return Parse(File.ReadAllText(path));
     }
-    internal static EffectAssessmentStore LoadApplicationCatalog()
+    internal static EffectAssessmentStore LoadApplicationCatalog() => LoadOrEmbedded(Path.Combine(AppContext.BaseDirectory, "effect-assessments.json"));
+    internal static EffectAssessmentStore LoadOrEmbedded(string path)
     {
-        try { return Load(Path.Combine(AppContext.BaseDirectory, "effect-assessments.json")); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException) { }
+        try { return Load(path); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or ArgumentException) { }
         using var stream = typeof(EffectAssessmentStore).Assembly.GetManifestResourceStream("DarkDesync.effect-assessments.json")!;
         using var reader = new StreamReader(stream);
         return Parse(reader.ReadToEnd());

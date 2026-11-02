@@ -81,15 +81,16 @@ internal static partial class Program
             var pulse = controls.OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.TriggerCycleCommand));
             Require(window.FindName("PacketSizeConsent") == null, "No per-mode consent checkbox");
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
+            using var automation = new NativeUiaClient();
+            AutomationElement? nativeStart = null; // Owned/accessed only by the MTA client below.
             void ClickStart()
             {
-                var click = Task.Run(() =>
+                var click = automation.InvokeAsync(() =>
                 {
-                    var root = AutomationElement.FromHandle(hwnd);
-                    var button = root.FindFirst(TreeScope.Descendants,
+                    nativeStart ??= AutomationElement.FromHandle(hwnd).FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "StartStopButton"));
-                    Require(button != null && button.Current.IsEnabled, "UIA discovers enabled START/STOP");
-                    ((InvokePattern)button!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    Require(nativeStart != null && nativeStart.Current.IsEnabled, "UIA discovers enabled START/STOP");
+                    ((InvokePattern)nativeStart!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                 });
                 Await(click); Pump();
             }

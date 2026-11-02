@@ -74,4 +74,23 @@ public sealed class CompactPanelBehaviorTests
     [InlineData("[{\"Mode\":23,\"DurationMs\":200,\"Category\":999,\"Note\":\"x\"}]")]
     [InlineData("[{\"Mode\":23,\"DurationMs\":200,\"Category\":0,\"Note\":\"x\"},{\"Mode\":23,\"DurationMs\":200,\"Category\":0,\"Note\":\"x\"}]")]
     public void UnsafeOrAmbiguousAssessmentDataIsRejected(string json) => Assert.Throws<InvalidDataException>(() => EffectAssessmentStore.Parse(json));
+
+    [Fact]
+    public void InvalidOrMissingEditableCatalogFallsBackWithoutWriting()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "DarkDesync-bad-assessments-" + Guid.NewGuid() + ".json");
+        try
+        {
+            foreach (string json in new[] { "not JSON", "[{\"Mode\":999,\"DurationMs\":200,\"Category\":0,\"Note\":\"x\"}]" })
+            {
+                File.WriteAllText(path, json);
+                Assert.Equal(AssessmentCategory.Balanced, EffectAssessmentStore.LoadOrEmbedded(path).Find(DiagnosticMode.FlowAwareShaping, 800)!.Category);
+                Assert.Equal(json, File.ReadAllText(path));
+            }
+            File.Delete(path);
+            Assert.Equal(AssessmentCategory.Legit, EffectAssessmentStore.LoadOrEmbedded(path).Find(DiagnosticMode.OutboundFreeze, 250)!.Category);
+            Assert.False(File.Exists(path));
+        }
+        finally { File.Delete(path); }
+    }
 }
