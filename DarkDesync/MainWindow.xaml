@@ -47,7 +47,7 @@
       <TextBlock Text="Não altera a duração do pulso abaixo." Style="{StaticResource HelpText}" />
       <CheckBox Content="Habilitado" IsChecked="{Binding CycleProfileEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
       <ComboBox ItemsSource="{Binding DiagnosticModeOptions}" SelectedItem="{Binding SelectedOutboundEffect}" Margin="0,0,0,16" />
-      <CheckBox x:Name="PacketSizeConsent" Content="Consinto: Packet Size-Aware · todos os aplicativos" IsChecked="{Binding GlobalPacketSizeConsent}" Visibility="{Binding IsGlobalPacketSizeSelected, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,12" ToolTip="Afeta apenas datagramas IPv4 de saída; os demais tráfegos passam sem efeito. Consentimento não é salvo; mudar efeito ou carregar configurações revoga." />
+      <TextBlock Text="{Binding EffectSupportText}" Style="{StaticResource HelpText}" Margin="0,0,0,12" />
       <Grid><TextBlock Text="Pulso · ms" /><TextBox Text="{Binding DiagnosticCycleDurationMs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
       <Slider Minimum="0" Maximum="800" Value="{Binding DiagnosticCycleDurationMs, Mode=TwoWay}" SmallChange="5" LargeChange="50" Margin="0,6,0,0" />
      </StackPanel></Border>

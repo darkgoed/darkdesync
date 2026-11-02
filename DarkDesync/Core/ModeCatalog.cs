@@ -19,7 +19,15 @@ public static class ModeCatalog
         ["Correlated Inbound Jitter"] = DiagnosticMode.CorrelatedInboundJitter,
         ["Packet Size-Aware Shaping"] = DiagnosticMode.PacketSizeAwareShaping,
         ["Asymmetric Duplex Shaping"] = DiagnosticMode.AsymmetricDuplexShaping,
-        ["Controlled Packet Reordering — EXPERIMENTAL"] = DiagnosticMode.ControlledPacketReordering
+        ["Controlled Packet Reordering — EXPERIMENTAL"] = DiagnosticMode.ControlledPacketReordering,
+        ["Time-Slot Bursting"] = DiagnosticMode.TimeSlotBursting,
+        ["Sawtooth Pacing"] = DiagnosticMode.SawtoothPacing,
+        ["Correlated Outbound Jitter"] = DiagnosticMode.CorrelatedOutboundJitter,
+        ["Two-Phase Drain"] = DiagnosticMode.TwoPhaseDrain,
+        ["Heavy-Tail Jitter"] = DiagnosticMode.HeavyTailJitter,
+        ["Adaptive Queue Shaping"] = DiagnosticMode.AdaptiveQueueShaping,
+        ["Gap-Based Reordering"] = DiagnosticMode.GapBasedReordering,
+        ["Gilbert–Elliott Burst Loss"] = DiagnosticMode.GilbertElliottBurstLoss
     };
     public static IReadOnlyDictionary<string, DiagnosticMode> Choices { get; } =
         PersonalRanking250ms.Concat(LegacyLabels.Values.Except(PersonalRanking250ms))
@@ -27,7 +35,7 @@ public static class ModeCatalog
 
     // Keep legacy identities/parser, but expose only genuine global outbound effects.
     public static IReadOnlyDictionary<string, DiagnosticMode> OutboundChoices { get; } =
-        Choices.Where(p => PacketEngine.ProfileCompatibilityError(p.Value, FilterMode.LegacyGlobalOutbound) == null)
+        Choices.Where(p => PersonalRanking250ms.Contains(p.Value) || p.Value == DiagnosticMode.BandwidthShaping || OutboundPulseScheduler.Handles(p.Value))
             .ToDictionary(p => p.Key, p => p.Value);
 
     private static string Label(DiagnosticMode mode)

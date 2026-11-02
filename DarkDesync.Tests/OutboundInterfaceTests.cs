@@ -11,7 +11,9 @@ public sealed class OutboundInterfaceTests
     [Fact]
     public void ProductionDefaultsHaveNoTargetOrProtocolPrerequisites() => ConfigurationBehaviorTests.WithVm((vm, e, _, _) =>
     {
-        Assert.Equal(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping", "Packet Size-Aware Shaping" }, vm.DiagnosticModeOptions);
+        Assert.Equal(12, vm.DiagnosticModeOptions.Count);
+        Assert.Equal(ModeCatalog.OutboundChoices.Keys, vm.DiagnosticModeOptions);
+        Assert.DoesNotContain("Packet Size-Aware Shaping", vm.DiagnosticModeOptions);
         Assert.Equal(200, vm.DiagnosticCycleDurationMs);
         Assert.Equal(ModeCatalog.Name(DiagnosticMode.OutboundFreeze), vm.SelectedDiagnosticModeText);
         Assert.True(vm.IsLegacyGlobalSelected);

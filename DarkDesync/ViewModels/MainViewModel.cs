@@ -333,6 +333,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     SettingsStatus = "Efeito Outbound selecionado. O arquivo antigo só será alterado ao Salvar.";
                 _unavailableSavedMode = null;
                 OnPropertyChanged(nameof(SelectedOutboundEffect));
+                OnPropertyChanged(nameof(EffectSupportText));
                 CancelCurrentPulse();
                 ExperimentalOptIn = false;
                 GlobalPacketSizeConsent = false;
@@ -374,7 +375,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    // One pulse duration shared by the nine visible effects.
+    public string EffectSupportText => ModeCatalog.Parse(_selectedDiagnosticModeText) switch
+    {
+        DiagnosticMode.GilbertElliottBurstLoss => "Perda intencional em rajadas (IPv4 TCP/UDP). TCP pode retransmitir. Somente pulso explícito, até 800 ms; IPv6/ICMP passam sem efeito.",
+        DiagnosticMode.GapBasedReordering => "Reordena somente UDP IPv4 no mesmo fluxo, com gap de 1 pacote e TTL de 24 ms. TCP, IPv6 e ICMP passam sem efeito.",
+        var mode when OutboundPulseScheduler.Handles(mode) => "Pacing/jitter IPv4 TCP/UDP, limitado ao pulso. IPv6, ICMP e fragmentos passam sem efeito; STOP libera pendências.",
+        _ => "START apenas arma; Espaço ou Pulso manual aplica o efeito. STOP libera pendências."
+    };
+
+    // One pulse duration shared by the twelve visible effects.
     private int _diagnosticCycleDurationMs = 200;
     public int DiagnosticCycleDurationMs
     {
@@ -531,7 +540,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get
         {
             var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
-            if (_outboundOnly) return $"Outbound · todos os aplicativos\n{(s.Running ? "Captura ARMADA" : "Captura parada")} • pulso: {DiagnosticCycleDurationMs} ms\nIntercepções: {_packetEngine?.PacketsIntercepted ?? 0} • retidos: {_packetEngine?.PacketsThrottled ?? 0} • perdas intencionais: {_packetEngine?.PacketsDropped ?? 0}";
+            if (_outboundOnly) return $"Outbound · todos os aplicativos\n{(s.Running ? "Captura ARMADA" : "Captura parada")} • pulso: {DiagnosticCycleDurationMs} ms\nIntercepções: {_packetEngine?.PacketsIntercepted ?? 0} • retidos: {_packetEngine?.PacketsThrottled ?? 0} • perdas intencionais GE: {_packetEngine?.IntentionalBurstDrops ?? 0} • falhas de envio: {_packetEngine?.PacketsFailedToSend ?? 0} • liberados scheduler: {_packetEngine?.ScheduledPacketsReleased ?? 0} • pares reordenados: {_packetEngine?.IntentionallyReorderedPairs ?? 0} • taxa alvo: {_packetEngine?.AdaptiveTargetBytesPerSecond ?? 0:F0} B/s";
             if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? (_packetEngine!.IsEffectActive ? "PULSO ATIVO" : "ARMADO / sem efeito") : "STOP / parado")}\nEfeito selecionado: {SelectedDiagnosticModeText} • pulso: {DiagnosticCycleDurationMs} ms" +
                 (IsGlobalDelayVisible ? $" • retenção por pacote: {GlobalDelayMs} ms" : "") +
                 $"\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
@@ -1077,6 +1086,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _selectedDiagnosticModeText = _unavailableSavedMode.Value.ToString();
             OnPropertyChanged(nameof(SelectedDiagnosticModeText));
             OnPropertyChanged(nameof(SelectedOutboundEffect));
+            OnPropertyChanged(nameof(EffectSupportText));
             OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
         }
         else SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);
