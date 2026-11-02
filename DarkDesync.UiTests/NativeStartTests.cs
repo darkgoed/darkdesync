@@ -76,23 +76,18 @@ internal static partial class Program
             var effects = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             var enabled = controls.OfType<CheckBox>().Single(c => Equals(c.Content, "Habilitado"));
             var status = (TextBlock)window.FindName("StartStatus");
-            var state = (TextBlock)window.FindName("CaptureState");
+            var state = (TextBlock)window.FindName("CompactCaptureState");
             var start = (Button)window.FindName("StartStopButton");
             var pulse = controls.OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.TriggerCycleCommand));
             Require(window.FindName("PacketSizeConsent") == null, "No per-mode consent checkbox");
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
-            using var automation = new NativeUiaClient();
-            AutomationElement? nativeStart = null; // Owned/accessed only by the MTA client below.
             void ClickStart()
             {
-                var click = automation.InvokeAsync(() =>
-                {
-                    nativeStart ??= AutomationElement.FromHandle(hwnd).FindFirst(TreeScope.Descendants,
-                        new PropertyCondition(AutomationElement.AutomationIdProperty, "StartStopButton"));
-                    Require(nativeStart != null && nativeStart.Current.IsEnabled, "UIA discovers enabled START/STOP");
-                    ((InvokePattern)nativeStart!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-                });
-                Await(click); Pump();
+                using var client = StartExternalUiaClick(hwnd);
+                Await(client.WaitForExitAsync());
+                string evidence = client.StandardOutput.ReadToEnd(), errors = client.StandardError.ReadToEnd();
+                Require(client.ExitCode == 0 && evidence.Contains("PASS external UIA Invoke"), "External UIA client: " + evidence + errors);
+                Pump();
             }
             void Select(DiagnosticMode mode)
             {
@@ -155,7 +150,7 @@ internal static partial class Program
                 if (mode != DiagnosticMode.GilbertElliottBurstLoss) Require(engine.PacketsDropped == 0, "Non-loss profile cannot discard");
                 Console.WriteLine("PASS outbound-only UIA/native: " + mode + "; no PID; enabled START; ARMADO/PULSO/PARADO; exact outbound; own TCP/UDP; focused Space; STOP drain");
             }
-            Console.WriteLine("PASS twelve exposed effects; PacketSizeAware remains legacy-only and is tested outside production UI.");
+            Console.WriteLine("PASS four favorites exposed; eight rejected modes and PacketSizeAware remain legacy-only, not production UI options.");
             foreach (var oldFilter in Enum.GetValues<FilterMode>())
             {
                 store.Save(new AppSettings { FilterMode = oldFilter, DiagnosticMode = DiagnosticMode.DualTokenBucket, DiagnosticDurationMs = 175, OnlyTargetForeground = true });
@@ -171,7 +166,10 @@ internal static partial class Program
                 byte[] before = File.ReadAllBytes(store.FilePath); vm.LoadSettings(); Pump();
                 Require(effects.SelectedItem == null && vm.SettingsStatus.Contains("indisponível"), "Hidden saved mode needs deliberate replacement");
                 ClickStart(); Stopped(); Require((status.Text.Contains("indisponível") && vm.StartStatusText.Contains("INCOMPATÍVEL")), "No fake global equivalent or unsafe reordering");
+                InvokeButton(pulse); Require(!engine.IsEffectActive && !engine.IsCaptureRequested, "Unavailable mode cannot pulse or open capture");
+                vm.SaveSettingsCommand.Execute(null);
                 Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Hidden configuration remains untouched");
+                CapturePanel(window, "artifacts/driver/screenshots", "unavailable-saved-" + hidden);
             }
             Select(DiagnosticMode.DualTokenBucket);
             vm.CustomFilterText = "203.0.113.88:4567 secret-token";
@@ -187,7 +185,7 @@ internal static partial class Program
             Require(window.FindName("CopyDiagnosticButton") == null, "No diagnostic copy UI"); vm.CopyDiagnosticCommand.Execute(null);
             Require(Clipboard.GetText() == vm.SupportDiagnosticText, "Explicit Clipboard read-back");
             Require(!Clipboard.GetText().Contains("203.0.113") && !Clipboard.GetText().Contains("secret-token") && !Clipboard.GetText().Contains("PID") && !Clipboard.GetText().Contains("FLOW"), "No sensitive values or target prerequisites in support text");
-            Console.WriteLine("PASS outbound-only native UI: all twelve exposed effects; real UIA START/STOP without target; read-only legacy migration; hidden modes refused; Win32 failure injection; Clipboard. Physical keyboard and user's PC NOT tested.");
+            Console.WriteLine("PASS outbound-only native UI: all four favorites; external-process UIA START/STOP without target; rejected eight/legacy refused; short Win32 errors; internal sanitized snapshot. Physical keyboard and user's PC NOT tested.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

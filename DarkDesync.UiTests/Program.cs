@@ -15,6 +15,7 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length == 3 && args[0] == "--uia-click") return RunExternalUiaClick(args);
         if (args.SequenceEqual(new[] { "--udp-sink" })) return RunUdpSink();
         if ((args.Length == 3 || args.Length == 4) && args[0] == "--udp-peer") return RunUdpPeer(args);
         if (args.SequenceEqual(new[] { "--driver-ui" })) return RunNativeUi();
@@ -34,14 +35,14 @@ internal static partial class Program
             var controls = Descendants(window).ToArray();
             var mode = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             var startButton = (Button)window.FindName("StartStopButton");
-            var state = (TextBlock)window.FindName("CaptureState");
+            var state = (TextBlock)window.FindName("CompactCaptureState");
             var status = (TextBlock)window.FindName("StartStatus");
             var enabled = controls.OfType<CheckBox>().Single(c => Equals(c.Content, "Habilitado"));
             Require(window.FindName("PacketSizeConsent") == null, "No redundant per-mode consent UI");
             Require(controls.OfType<ComboBox>().Count() == 2, "Only effect, duration-style and hotkey selectors; no process/network/protocol picker");
             Require(((TextBlock)window.FindName("OutboundScope")).Text.Contains("GLOBAL"), "Fixed global scope warning");
             Require(!controls.OfType<CheckBox>().Any(c => c.Content is string t && (t.Contains("alvo") || t.Contains("EXPERIMENTAL"))), "No target/experimental controls");
-            Require(vm.DiagnosticModeOptions.Count == 12 && vm.DiagnosticModeOptions.SequenceEqual(ModeCatalog.OutboundChoices.Keys) && !vm.DiagnosticModeOptions.Contains("Packet Size-Aware Shaping"), "Twelve genuine outbound effects, personal ranking intact");
+            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping" }), "Exactly four favorites, rejected eight and PacketSize absent");
             Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.OutboundFreeze) && Equals(mode.SelectedItem, vm.SelectedDiagnosticModeText), "Reorder must not pick rank 1 by accident");
             Require(vm.DiagnosticCycleDurationMs == 200 && vm.SelectedHotkeyName == "Espaço", "Default pulse/hotkey preserved");
             Require(vm.IsLegacyGlobalSelected && vm.SelectedProcess == null && !engine.IsCaptureRequested && state.Text == "PARADO", "Default global is prepared, not auto-started");
@@ -74,7 +75,7 @@ internal static partial class Program
                 InvokeButton(startButton);
                 Require((status.Text.Contains("indisponível") && vm.StartStatusText.Contains("INCOMPATÍVEL")) && state.Text == "PARADO" && !engine.IsCaptureRequested, "Hidden mode cannot arm global");
                 Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Refusal does not rewrite old settings");
-                vm.SaveSettingsCommand.Execute(null); Require(store.Load().DiagnosticMode == hidden, "Explicit save retains unavailable enum until user chooses a replacement");
+                vm.SaveSettingsCommand.Execute(null); Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)) && store.Load().DiagnosticMode == hidden, "Save refused until explicit valid selection; original file retained");
                 mode.SelectedItem = ModeCatalog.Name(DiagnosticMode.DualTokenBucket); Pump();
                 Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.DualTokenBucket), "User can explicitly choose supported replacement");
             }
@@ -91,7 +92,7 @@ internal static partial class Program
             Require(Clipboard.GetText() == vm.SupportDiagnosticText && !Clipboard.GetText().Contains("PID") && !Clipboard.GetText().Contains("FLOW"), "Explicit Clipboard read-back without target prerequisites");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
-            Console.WriteLine("PASS outbound-only WPF: twelve effects plus personal duration styles, no network/process/protocol selectors, conspicuous state, old scopes migrated read-only, hidden enums retained/refused, Win32 failures and Clipboard. No fabricated native success; real arming is tested by --driver-ui.");
+            Console.WriteLine("PASS outbound-only WPF: exactly four favorites, two primary presets, no diagnostic UI/network/process/protocol selectors; rejected eight and legacy enums refused read-only, Win32 failures and internal sanitized snapshot. Native arming tested by --driver-ui.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

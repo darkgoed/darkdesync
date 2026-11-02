@@ -63,6 +63,6 @@ internal static partial class Program
         effects.IsDropDownOpen = false; Pump(); vm.ResetSettingsCommand.Execute(null); Pump();
         Check("Não avaliado", "#374151", 200); Require(manual.IsChecked == true, "Defaults retain original 200ms and custom style");
         Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Defaults don't overwrite settings without Save");
-        Console.WriteLine("PASS personal ratings/styles WPF: all twelve dropdown pills, exact owner observations at 800ms/Freeze250, new effects unassessed, rendered colors+text, two 250/800 primary presets, Balanced classification only, explicit manual, slider/editor synchronization, manual mode, save/load/defaults read-only and no automatic capture. No objective/gameplay claim.");
+        Console.WriteLine("PASS personal ratings/styles WPF: four favorite dropdown pills, exact owner observations at 800ms/Freeze250, rendered colors+text, two 250/800 primary presets, Balanced classification only, explicit manual, slider/editor synchronization, explicit Save/read-only load/defaults and no automatic capture. No objective/gameplay claim.");
     }
 }

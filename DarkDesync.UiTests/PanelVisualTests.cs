@@ -27,7 +27,7 @@ internal static partial class Program
     private static void CapturePanel(MainWindow window, string folder, string name)
     {
         window.Activate(); window.UpdateLayout(); Pump();
-        string capturedState = ((TextBlock)window.FindName("CaptureState")).Text;
+        string capturedState = ((TextBlock)window.FindName("CompactCaptureState")).Text;
         Require(GetWindowRect(new WindowInteropHelper(window).Handle, out var rect), "Native screenshot window bounds");
         int w = rect.Right - rect.Left, h = rect.Bottom - rect.Top;
         var source = GetDC(IntPtr.Zero); var dc = CreateCompatibleDC(source); var bitmap = CreateCompatibleBitmap(source, w, h); var previous = SelectObject(dc, bitmap);
@@ -40,19 +40,26 @@ internal static partial class Program
             Directory.CreateDirectory(folder);
             using var stream = File.Create(Path.Combine(folder, name + ".png"));
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image)); encoder.Save(stream);
+            // Real loaded WPF visual at 120 DPI, not an OS monitor-scale claim.
+            var root = (FrameworkElement)window.FindName("PanelRoot");
+            var scaled = new RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth * 1.25), (int)Math.Ceiling(root.ActualHeight * 1.25), 120, 120, PixelFormats.Pbgra32);
+            scaled.Render(root);
+            using var dpiStream = File.Create(Path.Combine(folder, name + "-render125.png"));
+            var dpiEncoder = new PngBitmapEncoder(); dpiEncoder.Frames.Add(BitmapFrame.Create(scaled)); dpiEncoder.Save(dpiStream);
+            File.WriteAllText(Path.Combine(folder, name + "-render125.json"), JsonSerializer.Serialize(new { name, width = scaled.PixelWidth, height = scaled.PixelHeight, dpi = 120, scale = "125%", source = "Actual WPF visual rasterized at 120dpi; OS desktop scaling not changed", state = capturedState }));
             File.WriteAllText(Path.Combine(folder, name + ".json"), JsonSerializer.Serialize(new { name, width = w, height = h, windowWidthDip = window.Width, windowHeightDip = window.Height, source = "Windows desktop BitBlt", state = capturedState }));
         }
         finally { SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc); ReleaseDC(IntPtr.Zero, source); }
     }
     private static void CheckStateColor(MainWindow window, string text, string rgb)
     {
-        Pump(); var label = (TextBlock)window.FindName("CaptureState");
+        Pump(); var label = (TextBlock)window.FindName("CompactCaptureState");
         Require(label.Text == text && ((SolidColorBrush)label.Foreground).Color.ToString() == "#FF" + rgb[1..], "Actual rendered state text/brush: " + text);
     }
     private static void VerifyCompactPanelUi(MainWindow window, MainViewModel vm, PacketEngine engine, string folder)
     {
         var descendants = Descendants(window).ToArray();
-        Require(window.FindName("CopyDiagnosticButton") == null && !descendants.OfType<Expander>().Any() && !descendants.OfType<ListBox>().Any(), "Diagnostics/copy/log removed from visual tree, not hidden");
+        Require(window.FindName("CaptureState") == null && window.FindName("CopyDiagnosticButton") == null && !descendants.OfType<Expander>().Any() && !descendants.OfType<ListBox>().Any(), "Old capture/copy/log removed from visual tree, not hidden");
         Require(!descendants.OfType<TextBlock>().Any(t => new[] { "CAPTURA", "Copiar diagnóstico", "Diagnóstico de captura" }.Contains(t.Text)), "No capture card or diagnostic section");
         foreach (var t in descendants.OfType<TextBlock>())
         {
@@ -75,7 +82,7 @@ internal static partial class Program
             {
                 vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode); vm.SelectPulseStyleCommand.Execute("Agressivo"); Pump();
                 var expected = EffectExperienceCatalog.Rating(mode, 800);
-                Require(((TextBlock)window.FindName("EffectRatingLabel")).Text == expected.Label, "All twelve selections render at both sizes");
+                Require(((TextBlock)window.FindName("EffectRatingLabel")).Text == expected.Label, "All four selections render at both sizes");
                 CapturePanel(window, folder, $"{(int)size.Item1}x{(int)size.Item2}-{mode}-800-stopped");
             }
             vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.OutboundFreeze); vm.SelectPulseStyleCommand.Execute("Legit");
@@ -91,6 +98,6 @@ internal static partial class Program
         var start = (Button)window.FindName("StartStopButton"); start.Focus(); Pump();
         Require(start.IsKeyboardFocused && start.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.Next)), "Tab traverses primary actions");
         RouteSpace(start); Require(!engine.IsCaptureRequested, "Focused Space cannot click START without an armed capture");
-        Console.WriteLine("PASS compact visual panel: real desktop PNGs, 900x560/1000x640, twelve effect pills, no diagnostics/copy/log elements or bindings, two primary styles and explicit manual; stopped/waiting brush verified. Native ARMADO/PULSO colors are verified separately, not simulated as native success.");
+        Console.WriteLine("PASS compact visual panel: real desktop PNGs 900x560/1000x640 and WPF 125% rasterization (not OS scaling), four favorite pills, no diagnostics/copy/log elements or bindings, two primary styles/manual; stopped/waiting brush verified. Native ARMADO/PULSO colors verified separately.");
     }
 }
