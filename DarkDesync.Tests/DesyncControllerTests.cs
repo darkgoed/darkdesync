@@ -6,7 +6,7 @@ using Xunit;
 
 namespace DarkDesync.Tests;
 
-public class DesyncControllerTests
+public class DesyncControllerTests : IDisposable
 {
     private readonly DesyncStateMachine _stateMachine;
     private readonly DesyncController _controller;
@@ -32,15 +32,16 @@ public class DesyncControllerTests
         };
         _controller.ActiveProfile = profile;
 
-        CycleRecord? recordedCycle = null;
-        _controller.CycleFinished += rec => recordedCycle = rec;
+        var finished = new TaskCompletionSource<CycleRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _controller.CycleFinished += rec => finished.TrySetResult(rec);
 
         bool started = _controller.TriggerCycle();
         Assert.True(started);
         Assert.Equal(DesyncStateMachine.State.Active, _controller.CurrentState);
 
-        // Wait for cycle to complete + restoration settling (100ms + 40ms settling + padding)
-        await Task.Delay(250);
+        // A busy runner can schedule the cycle worker after an arbitrary sleep.
+        // Await actual completion/restore, not a presumed thread-pool deadline.
+        var recordedCycle = await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(DesyncStateMachine.State.Idle, _controller.CurrentState);
         Assert.NotNull(recordedCycle);
@@ -59,6 +60,8 @@ public class DesyncControllerTests
         };
         _controller.ActiveProfile = profile;
 
+        var finished = new TaskCompletionSource<CycleRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _controller.CycleFinished += rec => finished.TrySetResult(rec);
         bool first = _controller.TriggerCycle();
         Assert.True(first);
 
@@ -71,7 +74,8 @@ public class DesyncControllerTests
         Assert.False(third);
         Assert.False(fourth);
 
-        await Task.Delay(400);
+        var record = await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(record.CompletedNormally);
         Assert.Equal(DesyncStateMachine.State.Idle, _controller.CurrentState);
     }
 
@@ -102,4 +106,6 @@ public class DesyncControllerTests
 
         _controller.CancelCycle();
     }
+
+    public void Dispose() => _controller.Dispose();
 }
