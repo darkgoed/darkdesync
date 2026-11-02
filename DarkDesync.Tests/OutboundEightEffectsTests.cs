@@ -187,6 +187,6 @@ public sealed class OutboundEightEffectsTests(ITestOutputHelper output)
         Assert.Equal(512, s.Drain().Count()); Assert.Equal(0, s.Bytes);
         for (ushort i = 0; i < 128; i++) Assert.Equal(OutboundPulseScheduler.Decision.Held, s.Enqueue(P(), F(i), T(1000)));
         Assert.Equal(OutboundPulseScheduler.Decision.Overflow, s.Enqueue(P(), F(129), T(1000)));
-        Assert.False(s.TryDequeue(T(900), out _) && mode == DiagnosticMode.TwoPhaseDrain);
+        if (mode == DiagnosticMode.TwoPhaseDrain) Assert.False(s.TryDequeue(T(900), out _));
     }
 }

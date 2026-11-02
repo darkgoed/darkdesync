@@ -129,6 +129,11 @@ internal static partial class Program
                 using var sender = new UdpClient(); sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
                 long held = engine.PacketsThrottled;
                 InvokeButton(pulse); Require(engine.IsEffectActive && state.Text == "PULSO ATIVO", "Pulse state is distinct from capture arming");
+                if (mode == DiagnosticMode.GapBasedReordering)
+                {
+                    Await(TcpLoopbackProbe());
+                    Require(engine.IsEffectActive, "Gap TCP pass-through probe must finish inside pulse");
+                }
                 long sentBefore = engine.PacketsPassedThrough, lossBefore = engine.IntentionalBurstDrops;
                 Await(sender.SendAsync(new byte[900], 900));
                 Until(() => engine.PacketsThrottled > held || engine.PacketsPassedThrough > sentBefore || engine.IntentionalBurstDrops > lossBefore);
@@ -169,7 +174,7 @@ internal static partial class Program
             InvokeButton((Button)window.FindName("CopyDiagnosticButton"));
             Require(Clipboard.GetText() == vm.SupportDiagnosticText, "Explicit Clipboard read-back");
             Require(!Clipboard.GetText().Contains("203.0.113") && !Clipboard.GetText().Contains("secret-token") && !Clipboard.GetText().Contains("PID") && !Clipboard.GetText().Contains("FLOW"), "No sensitive values or target prerequisites in support text");
-            Console.WriteLine("PASS outbound-only native UI: all five exposed effects; real UIA START/STOP without target; read-only legacy migration; hidden modes refused; Win32 failure injection; Clipboard. Physical keyboard and user's PC NOT tested.");
+            Console.WriteLine("PASS outbound-only native UI: all twelve exposed effects; real UIA START/STOP without target; read-only legacy migration; hidden modes refused; Win32 failure injection; Clipboard. Physical keyboard and user's PC NOT tested.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
