@@ -23,7 +23,7 @@ Selecione alvo/filtro, efeito, duração e atalho. A interface oferece nove perf
 - Dual Token Bucket: cada envio exige bytes nos DOIS buckets: média 8 KiB/s (capacidade 2048 bytes, crédito inicial 1024) e pico 32 KiB/s (capacidade 1536 bytes, crédito inicial zero). Débito no momento real de liberação; tokens não crescem indefinidamente.
 - Flow-Aware Shaping: filas e buckets independentes por protocolo/IPs/portas IPv4 TCP/UDP; 8 KiB/s por fluxo, crédito inicial zero, limite 1536 bytes e seleção round-robin. FIFO por fluxo; NÃO há ordenação global entre conexões nem limite agregado equivalente ao Bandwidth Shaping.
 
-Cinco mecanismos novos, em scheduler separado e SOMENTE PID estrito (nunca GLOBAL):
+Cinco mecanismos novos em scheduler separado. Quatro exigem PID estrito; Packet Size-Aware também permite GLOBAL outbound com consentimento separado, explícito e não persistido:
 
 | Perfil | Padrão conservador | Ordem |
 | --- | --- | --- |
@@ -35,7 +35,21 @@ Cinco mecanismos novos, em scheduler separado e SOMENTE PID estrito (nunca GLOBA
 
 A duração é única: 0–800 ms, padrão 200 ms; 0 desativa. O worker verifica liberação a cada aproximadamente 4 ms, em turnos de até 64 envios, sem garantia de tempo real. O flush final/cancelamento/STOP não obedece à vazão: liberação segura prevalece. Nos novos modos: 512 pacotes, 786432 bytes IP, 128 fluxos históricos por pulso e 1536 bytes por pacote. Saturação/oversize/perda de prova cancela e drena antes do pacote atual. Timer e deadline nos caminhos de captura/release limitam retenção ao pulso; STOP usa flush síncrono sob o mesmo lock para ambas as direções, sem tarefas de pacotes sobreviventes. Retirar o opt-in também cancela e drena. O contador de pares reordenados mede tentativas intencionais, separado das falhas de envio/perdas reais.
 
-Os novos filtros usam apenas tuplas completas comprovadas, com `not impostor`. Uma restrição customizada só reduz esse conjunto. WinDivert reporta loopback como outbound: a direção lógica recebida é comprovada pela tupla reversa do PID, mantendo endereço nativo na reinjeção. Se ambos os sockets loopback pertencem ao alvo, direção ambígua passa livre. IPv6, fragmentos, cabeçalhos inválidos e binding compartilhado passam sem efeito. Reinjeção no mesmo handle não é recapturada; impostors de outros injetores são excluídos.
+No PID estrito, os novos filtros usam apenas tuplas completas comprovadas, com `not impostor`. Uma restrição customizada só reduz esse conjunto. WinDivert reporta loopback como outbound: a direção lógica recebida é comprovada pela tupla reversa do PID, mantendo endereço nativo na reinjeção. Se ambos os sockets loopback pertencem ao alvo, direção ambígua passa livre. IPv6, fragmentos, cabeçalhos inválidos e binding compartilhado passam sem efeito. Reinjeção no mesmo handle não é recapturada; impostors de outros injetores são excluídos. GLOBAL Packet Size-Aware usa consentimento em vez de prova PID: qualquer UDP IPv4 outbound válido é elegível, não apenas loopback; TCP passa livre. Cabeçalhos não identificáveis/oversize/saturação cancelam e drenam o pulso (fail-open).
+
+### Compatibilidade de filtro e direção (patch .3)
+
+O filtro escolhido nunca é trocado ao selecionar PID, efeito ou START, nem salvo implicitamente.
+
+| Efeito | Outbound GLOBAL | Saída do alvo (PID) | Entrada + saída / Conexões verificadas (PID) |
+| --- | --- | --- | --- |
+| Quatro favoritos | Caminhos anteriores preservados | Preservado | Preservado; efeitos continuam somente saída |
+| Packet Size-Aware | UDP IPv4, consentimento GLOBAL separado obrigatório | UDP IPv4 com tupla exata | UDP IPv4 somente saída |
+| Controlled Packet Reordering | Incompatível, nunca autorizado | UDP loopback próprio + opt-in experimental | Mesmo limite, somente saída |
+| Inbound Bandwidth / Correlated Inbound Jitter | Incompatível | Incompatível | Somente entrada |
+| Asymmetric Duplex | Incompatível | Incompatível | Duas direções |
+
+Incompatibilidade aparece no status visível e bloqueia START, sem alterar seleção ou capturar. No modo personalizado, a expressão é intersectada com a direção do efeito e as tuplas PID; uma expressão que exclui a direção necessária não produzirá efeito. O opt-in experimental e o consentimento GLOBAL são independentes e não são salvos; mudar filtro/efeito ou carregar/padrões revoga o consentimento GLOBAL. Não há variante outbound disfarçada de efeito inbound.
 
 Fixtures UDP/TCP determinísticas validam direção, FIFO, clock/seed, cancelamento e limites; o driver Windows dos novos perfis gera somente UDP loopback próprio com PID filho. Isso NÃO comprova inbound nativo de interface física, redes adversas nem jogos de terceiros. WinDivert/Windows pode perder tráfego por fila do kernel, fechamento, falhas de envio ou condições adversas. Não se promete zero perda real. Reordering não garante efeitos Roblox; não há testes/autorização em jogos de terceiros nem instruções para vantagem em partidas públicas.
 
@@ -73,7 +87,7 @@ WinDivert não permite trocar filtro nativamente no mesmo handle: a publicação
 
 ## Verificação e download
 
-Auditoria desta entrega: [cinco mecanismos, matriz e limites](audit/FIVE_INBOUND_EXPERIMENTAL_20261102.md). Auditorias anteriores ficam preservadas. TRX e evidência do commit publicado acompanham a release. Os cinco novos recusam GLOBAL; essa saída mantém as opções dos quatro aprovados.
+Auditoria deste patch: [seleção outbound e compatibilidade](audit/OUTBOUND_SELECTION_PATCH_20261102.md). Auditorias anteriores ficam preservadas. TRX e evidência do commit publicado acompanham a release. GLOBAL permite os quatro favoritos e Packet Size-Aware com consentimento separado, não os modos inbound/duplex/reordering.
 
 GitHub Actions “Windows validation” compila, executa regressões e smoke WPF, e publica UMA pasta `DarkDesync-win-x64`. Driver real é opt-in em `workflow_dispatch` com `driver_tests=true`; só gera sockets TCP/UDP loopback próprios e falha sem driver. A suíte cobre os nove perfis, APIs legadas e isolamento entre PIDs, TCP:443 inicial, UDP posterior, troca de filtro, restart, fechamento de UDP e encerramento do PID. Entrada nativa é coberta sinteticamente; entrada lógica loopback usa tupla reversa comprovada, sem representar uma interface física. Em PowerShell elevado:
 

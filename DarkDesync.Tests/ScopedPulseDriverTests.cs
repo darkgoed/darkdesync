@@ -16,7 +16,7 @@ public sealed class ScopedPulseDriverTests(ITestOutputHelper output)
     [InlineData(DiagnosticMode.PacketSizeAwareShaping)]
     [InlineData(DiagnosticMode.AsymmetricDuplexShaping)]
     [InlineData(DiagnosticMode.ControlledPacketReordering)]
-    public async Task RealViewModel_GlobalToStrict_StartWaits_FlowAutoStarts_PulseStop(DiagnosticMode mode)
+    public async Task RealViewModel_ExplicitCompatibleFilter_StartWaits_FlowAutoStarts_PulseStop(DiagnosticMode mode)
     {
         using var peer = await UdpDriverIntegrationTests.Peer.Start();
         using var client = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
@@ -28,7 +28,9 @@ public sealed class ScopedPulseDriverTests(ITestOutputHelper output)
             vm.SelectedFilterModeText = vm.FilterModeOptions[4];
             vm.SelectedProcess = new DarkDesync.Models.ProcessInfo { ProcessId = peer.Pid };
             vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode);
-            Assert.Equal(vm.FilterModeOptions[2], vm.SelectedFilterModeText);
+            Assert.Equal(vm.FilterModeOptions[4], vm.SelectedFilterModeText);
+            int filterIndex = mode is DiagnosticMode.PacketSizeAwareShaping or DiagnosticMode.ControlledPacketReordering ? 0 : 1;
+            vm.SelectedFilterModeText = vm.FilterModeOptions[filterIndex];
             Assert.True(e.IsObservingUdp); Assert.False(e.IsCaptureRequested);
             if (mode == DiagnosticMode.ControlledPacketReordering)
             {
@@ -45,6 +47,7 @@ public sealed class ScopedPulseDriverTests(ITestOutputHelper output)
             UdpDriverIntegrationTests.WaitUntil(() => e.IsRunning && e.ScopeStatus.UdpScoped > 0).GetAwaiter().GetResult();
             Refresh();
             Assert.True(vm.IsEngineRunning); Assert.Contains("ARMADA", vm.StartStatusText);
+            Assert.Equal(vm.FilterModeOptions[filterIndex], vm.SelectedFilterModeText);
             Assert.Contains("udp.SrcPort == " + peer.Port, e.CurrentFilter);
             Assert.Contains("not impostor", e.CurrentFilter);
             Assert.Equal(0, e.PacketsThrottled);
@@ -59,7 +62,7 @@ public sealed class ScopedPulseDriverTests(ITestOutputHelper output)
             vm.ToggleEngineCommand.Execute(null);
             Assert.False(e.IsCaptureRequested); Assert.False(e.IsRunning); Assert.Equal("START", vm.EngineToggleText);
         });
-        output.WriteLine($"{mode}: actual VM START from GLOBAL migrated UI to verified PID, native FLOW -> NETWORK, disabled effect, pulse, STOP verified on own child loopback.");
+        output.WriteLine($"{mode}: actual VM preserved explicit Outbound/AllTraffic PID selection, native FLOW -> NETWORK, disabled effect, pulse, STOP verified on own child loopback.");
     }
 
     [DriverTheory, Trait("Category", "Driver")]

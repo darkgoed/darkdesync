@@ -16,15 +16,14 @@ public sealed class ScopedStartTests
             vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode);
             vm.ToggleEngineCommand.Execute(null);
             Assert.True(vm.IsLegacyGlobalSelected);
-            Assert.Contains("Selecione", vm.StartStatusText);
-            Assert.Contains("PID estrito", vm.StartStatusText);
+            Assert.Contains(mode == DiagnosticMode.PacketSizeAwareShaping ? "Consentimento GLOBAL" : "INCOMPATÍVEL", vm.StartStatusText);
             Assert.Equal("START", vm.EngineToggleText);
             Assert.False(e.IsCaptureRequested);
             Assert.False(File.Exists(Path.Combine(dir, "settings.json")));
         });
 
     [Theory, MemberData(nameof(ScopedPulseTests.Modes), MemberType = typeof(ScopedPulseTests))]
-    public void GlobalWithPid_MigratesOnlyUi_StartWaitsWithoutEffect_StopRevokes(DiagnosticMode mode) =>
+    public void ExplicitVerifiedPid_StartWaitsWithoutEffect_StopRevokes(DiagnosticMode mode) =>
         ConfigurationBehaviorTests.WithVm((vm, e, _, dir) =>
         {
             e.UdpFlowsOverride = () => [];
@@ -34,6 +33,8 @@ public sealed class ScopedStartTests
             byte[] saved = File.ReadAllBytes(Path.Combine(dir, "settings.json"));
             vm.SelectedProcess = new ProcessInfo { ProcessId = (uint)Environment.ProcessId };
             vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode);
+            Assert.Equal(vm.FilterModeOptions[4], vm.SelectedFilterModeText);
+            vm.SelectedFilterModeText = vm.FilterModeOptions[2];
             Assert.Equal(vm.FilterModeOptions[2], vm.SelectedFilterModeText);
             Assert.False(e.IsCaptureRequested);
             Assert.Equal(saved, File.ReadAllBytes(Path.Combine(dir, "settings.json")));
@@ -60,15 +61,15 @@ public sealed class ScopedStartTests
         });
 
     [Theory, MemberData(nameof(ScopedPulseTests.Modes), MemberType = typeof(ScopedPulseTests))]
-    public void SelectingPidAfterScopedChoice_AlsoMigratesGlobal(DiagnosticMode mode) =>
+    public void SelectingPidAfterScopedChoice_PreservesGlobal(DiagnosticMode mode) =>
         ConfigurationBehaviorTests.WithVm((vm, e, _, _) =>
         {
             e.UdpFlowsOverride = () => []; e.EndpointsOverride = _ => [];
             vm.SelectedFilterModeText = vm.FilterModeOptions[4];
             vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode);
             vm.SelectedProcess = new ProcessInfo { ProcessId = (uint)Environment.ProcessId };
-            Assert.False(vm.IsLegacyGlobalSelected);
-            Assert.Equal(vm.FilterModeOptions[2], vm.SelectedFilterModeText);
+            Assert.True(vm.IsLegacyGlobalSelected);
+            Assert.Equal(vm.FilterModeOptions[4], vm.SelectedFilterModeText);
             Assert.False(e.IsCaptureRequested);
         });
 
