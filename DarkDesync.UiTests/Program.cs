@@ -15,6 +15,7 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.SequenceEqual(new[] { "--udp-sink" })) return RunUdpSink();
         if ((args.Length == 3 || args.Length == 4) && args[0] == "--udp-peer") return RunUdpPeer(args);
         if (args.SequenceEqual(new[] { "--driver-ui" })) return RunNativeUi();
         string temporary = Path.Combine(Path.GetTempPath(), "DarkDesync-UI-" + Guid.NewGuid());
@@ -96,6 +97,18 @@ internal static partial class Program
         {
             PresentationTraceSources.DataBindingSource.Listeners.Remove(errors);
             if (Directory.Exists(temporary)) Directory.Delete(temporary, true);
+        }
+    }
+
+    private static int RunUdpSink()
+    {
+        using var socket = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+        Console.WriteLine(((System.Net.IPEndPoint)socket.Client.LocalEndPoint!).Port); Console.Out.Flush();
+        while (true)
+        {
+            var remote = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+            byte[] bytes = socket.Receive(ref remote);
+            Console.WriteLine(Convert.ToBase64String(bytes)); Console.Out.Flush();
         }
     }
 

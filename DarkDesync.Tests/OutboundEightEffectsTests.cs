@@ -153,7 +153,9 @@ public sealed class OutboundEightEffectsTests(ITestOutputHelper output)
         e.Stop(); e.FlushThrottleQueue();
         Assert.Equal(31, ids.Count + e.IntentionalBurstDrops); Assert.Equal(ids.Count, ids.Distinct().Count());
         long released = e.ScheduledPacketsReleased;
-        ArmedCaptureTests.ModelArm(e); Assert.True(e.TriggerArmedEffect(mode, 800));
+        ArmedCaptureTests.ModelArm(e);
+        e.SendOverride = (p, n, a) => { Assert.True(a.Outbound); ids.Add(Marshal.ReadByte(p, (int)n - 1)); return true; };
+        Assert.True(e.TriggerArmedEffect(mode, 800));
         now = T(1800); ShapingEffectsTests.Release(e, now);
         Assert.False(e.IsEffectActive); Assert.Equal(released, e.ScheduledPacketsReleased);
         Assert.False(ShapingEffectsTests.Capture(e, 99, protocol: 17)); Assert.Equal(99, ids[^1]);

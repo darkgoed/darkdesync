@@ -548,6 +548,10 @@ public sealed class PacketEngine : IDisposable
             Interlocked.Exchange(ref _udpDropped, 0);
             Interlocked.Exchange(ref _tcpHeld, 0);
             Interlocked.Exchange(ref _udpHeld, 0);
+            Interlocked.Exchange(ref _intentionalBurstDrops, 0);
+            Interlocked.Exchange(ref _scheduledReleased, 0);
+            Interlocked.Exchange(ref _reorderedPairs, 0);
+            Interlocked.Exchange(ref _reinjectionFailures, 0);
             try
             {
                 ReplaceNetworkScope("outbound", []);
