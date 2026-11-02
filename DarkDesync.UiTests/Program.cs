@@ -179,6 +179,10 @@ internal static partial class Program
             Require(vm.SelectedFilterModeText == vm.FilterModeOptions[0], "START keeps PID Outbound selection");
             RouteSpace(startButton);
             Require(engine.IsCaptureRequested && !engine.IsRunning, "Configured Space must not click focused STOP while waiting");
+            vm.SelectedHotkeyName = "T"; RouteSpace(startButton);
+            Require(!engine.IsCaptureRequested, "Unconfigured Space retains normal WPF button keyboard activation");
+            vm.SelectedHotkeyName = "Espaço"; InvokeButton(startButton); Pump();
+            Require(engine.IsCaptureRequested && !engine.IsRunning, "START restores honest wait after keyboard STOP");
             enabled.IsChecked = false; Pump();
             Require(!vm.CycleProfileEnabled && startStatus.Text.Contains("Habilitado"), "Enable checkbox binding gives explicit instruction");
             enabled.IsChecked = true; Pump();

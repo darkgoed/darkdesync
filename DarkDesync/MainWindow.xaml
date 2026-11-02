@@ -22,7 +22,7 @@
     <TextBlock Text="Controle de tráfego" FontSize="26" FontWeight="SemiBold" />
     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
      <Border Background="#252331" CornerRadius="7" Padding="12,10" Margin="0,0,10,0"><StackPanel Orientation="Horizontal"><Ellipse Width="7" Height="7" Fill="{Binding StatusColorBrush}" Margin="0,0,8,0" /><TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" /></StackPanel></Border>
-     <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Content="{Binding EngineToggleText}" Command="{Binding ToggleEngineCommand}" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" />
+     <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Content="{Binding EngineToggleText}" Command="{Binding ToggleEngineCommand}" PreviewKeyDown="StartStop_PreviewKey" PreviewKeyUp="StartStop_PreviewKey" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" />
      <Button Content="Pulso manual →" Focusable="False" Command="{Binding TriggerCycleCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" />
      <Button Content="Cancelar" Visibility="{Binding IsStrictCaptureMode, Converter={StaticResource BoolVisibility}}" Command="{Binding CancelCycleCommand}" Style="{StaticResource DangerButton}" />
     </StackPanel>
