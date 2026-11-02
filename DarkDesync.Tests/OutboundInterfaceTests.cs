@@ -11,7 +11,8 @@ public sealed class OutboundInterfaceTests
     [Fact]
     public void ProductionDefaultsHaveNoTargetOrProtocolPrerequisites() => ConfigurationBehaviorTests.WithVm((vm, e, _, _) =>
     {
-        Assert.Equal(12, vm.DiagnosticModeOptions.Count);
+        Assert.Equal(4, vm.DiagnosticModeOptions.Count);
+        Assert.Equal(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping" }, vm.DiagnosticModeOptions);
         Assert.Equal(ModeCatalog.OutboundChoices.Keys, vm.DiagnosticModeOptions);
         Assert.DoesNotContain("Packet Size-Aware Shaping", vm.DiagnosticModeOptions);
         Assert.Equal(200, vm.DiagnosticCycleDurationMs);
@@ -48,7 +49,8 @@ public sealed class OutboundInterfaceTests
             vm.ToggleEngineCommand.Execute(null);
             Assert.Equal(before + 1, opens); // Injected refusal, not a fabricated driver success.
             Assert.Contains("Win32 5", vm.StartStatusText);
-            Assert.Contains("Copiar diagnóstico", vm.StartStatusText);
+            Assert.DoesNotContain("Copiar diagnóstico", vm.StartStatusText);
+            Assert.Contains("Win32 5", vm.CompactStartErrorText);
             Assert.Equal("PARADO / PAUSADO", vm.CaptureStateText);
             Assert.False(e.IsCaptureRequested); Assert.False(e.IsRunning);
             Assert.DoesNotContain("PID", vm.SupportDiagnosticText);

@@ -38,7 +38,7 @@ internal static partial class Program
         Pump();
     }
 
-    private static void RouteSpace(Button button)
+    private static void RouteSpace(System.Windows.Controls.Primitives.ButtonBase button)
     {
         button.Focus(); Pump();
         Require(button.IsKeyboardFocused, "Real loaded START/STOP button has WPF keyboard focus");
@@ -76,22 +76,19 @@ internal static partial class Program
             var effects = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             var enabled = controls.OfType<CheckBox>().Single(c => Equals(c.Content, "Habilitado"));
             var status = (TextBlock)window.FindName("StartStatus");
-            var state = (TextBlock)window.FindName("CaptureState");
+            var state = (TextBlock)window.FindName("CompactCaptureState");
             var start = (Button)window.FindName("StartStopButton");
             var pulse = controls.OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.TriggerCycleCommand));
             Require(window.FindName("PacketSizeConsent") == null, "No per-mode consent checkbox");
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
             void ClickStart()
             {
-                var click = Task.Run(() =>
-                {
-                    var root = AutomationElement.FromHandle(hwnd);
-                    var button = root.FindFirst(TreeScope.Descendants,
-                        new PropertyCondition(AutomationElement.AutomationIdProperty, "StartStopButton"));
-                    Require(button != null && button.Current.IsEnabled, "UIA discovers enabled START/STOP");
-                    ((InvokePattern)button!.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-                });
-                Await(click); Pump();
+                var point = start.PointToScreen(new Point(start.ActualWidth / 2, start.ActualHeight / 2));
+                using var client = StartExternalUiaClick(hwnd, point);
+                Await(client.WaitForExitAsync());
+                string evidence = client.StandardOutput.ReadToEnd(), errors = client.StandardError.ReadToEnd();
+                Require(client.ExitCode == 0 && evidence.Contains("PASS external UIA Invoke"), "External UIA client: " + evidence + errors);
+                Pump();
             }
             void Select(DiagnosticMode mode)
             {
@@ -101,25 +98,31 @@ internal static partial class Program
             }
             void Stopped()
             {
-                Require(!engine.IsCaptureRequested && !engine.IsRunning && Equals(start.Content, "START") && state.Text == "PARADO / PAUSADO", "STOP/refusal must not fake arming");
+                Require(!engine.IsCaptureRequested && !engine.IsRunning && Equals(start.Content, "START") && state.Text == "PARADO", "STOP/refusal must not fake arming");
             }
             void Armed()
             {
-                Require(engine.IsCaptureRequested && engine.IsRunning && Equals(start.Content, "STOP") && state.Text == "ARMADO / ATIVO", "Real driver, requested/running and conspicuous ARMADO state agree");
+                Require(engine.IsCaptureRequested && engine.IsRunning && Equals(start.Content, "STOP") && state.Text == "ARMADO", "Real driver, requested/running and conspicuous ARMADO state agree");
                 Require(engine.CurrentFilter == "outbound" && vm.SelectedProcess == null, "Literal outbound without a target");
                 Require(!engine.IsEffectActive && engine.ActiveDiagnosticMode == DiagnosticMode.None, "START only arms, never triggers effect");
+                CheckStateColor(window, "ARMADO", "#06D6A0");
             }
-            Require(controls.OfType<ComboBox>().Count() == 3 && vm.Processes.Count == 0, "Only effect/style/hotkey; no network/protocol/target discovery or selectors");
-            Require(vm.DiagnosticCycleDurationMs == 200 && state.Text == "PARADO / PAUSADO", "Initial stopped state; ranking does not set 250ms");
+            Require(controls.OfType<ComboBox>().Count() == 2 && vm.Processes.Count == 0, "Only effect/style/hotkey; no network/protocol/target discovery or selectors");
+            Require(vm.DiagnosticCycleDurationMs == 200 && state.Text == "PARADO", "Initial stopped state; ranking does not set 250ms");
             VerifyExperienceUi(window, vm, store, engine);
+            VerifyCompactPanelUi(window, vm, engine, "artifacts/driver/screenshots");
             foreach (var mode in ModeCatalog.OutboundChoices.Values.Where(m => m != DiagnosticMode.PacketSizeAwareShaping))
             {
                 Select(mode); enabled.IsChecked = true; Pump(); ClickStart(); Armed();
+                CapturePanel(window, "artifacts/driver/screenshots", "native-armed-" + mode);
+                int beforeStyle = vm.DiagnosticCycleDurationMs;
+                RouteSpace((RadioButton)window.FindName("AggressiveStyleButton"));
+                Require(vm.DiagnosticCycleDurationMs == beforeStyle && !engine.IsEffectActive, "Focused radio Space cannot select a preset or double-pulse");
                 Require(!vm.GlobalPacketSizeConsent && !vm.ExperimentalOptIn, "Four favorites need no extra opt-in");
                 RouteSpace(start); Armed(); // Routed WPF keys must not click focused STOP.
                 Await(TcpLoopbackProbe());
                 enabled.IsChecked = false; Pump(); InvokeButton(pulse);
-                Require(!engine.IsEffectActive && state.Text == "ARMADO / ATIVO", "Disabled effect keeps capture armed but cannot pulse");
+                Require(!engine.IsEffectActive && state.Text == "ARMADO", "Disabled effect keeps capture armed but cannot pulse");
                 enabled.IsChecked = true; vm.DiagnosticCycleDurationMs = 250; Pump();
                 hotkey.DispatchKeyTransition(0x20, true); Pump();
                 Require(engine.IsEffectActive, "Hotkey subscriber pulses the native capture (not a hardware-key claim)");
@@ -129,7 +132,10 @@ internal static partial class Program
                 using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
                 using var sender = new UdpClient(); sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
                 long held = engine.PacketsThrottled;
+                vm.IsManualDurationEnabled = true; vm.DiagnosticCycleDurationMs = 800; Pump();
                 InvokeButton(pulse); Require(engine.IsEffectActive && state.Text == "PULSO ATIVO", "Pulse state is distinct from capture arming");
+                CheckStateColor(window, "PULSO ATIVO", "#EF233C");
+                CapturePanel(window, "artifacts/driver/screenshots", "native-pulse-" + mode);
                 if (mode == DiagnosticMode.GapBasedReordering)
                 {
                     Await(TcpLoopbackProbe());
@@ -145,7 +151,7 @@ internal static partial class Program
                 if (mode != DiagnosticMode.GilbertElliottBurstLoss) Require(engine.PacketsDropped == 0, "Non-loss profile cannot discard");
                 Console.WriteLine("PASS outbound-only UIA/native: " + mode + "; no PID; enabled START; ARMADO/PULSO/PARADO; exact outbound; own TCP/UDP; focused Space; STOP drain");
             }
-            Console.WriteLine("PASS twelve exposed effects; PacketSizeAware remains legacy-only and is tested outside production UI.");
+            Console.WriteLine("PASS four favorites exposed; eight rejected modes and PacketSizeAware remain legacy-only, not production UI options.");
             foreach (var oldFilter in Enum.GetValues<FilterMode>())
             {
                 store.Save(new AppSettings { FilterMode = oldFilter, DiagnosticMode = DiagnosticMode.DualTokenBucket, DiagnosticDurationMs = 175, OnlyTargetForeground = true });
@@ -160,8 +166,11 @@ internal static partial class Program
                 store.Save(new AppSettings { DiagnosticMode = hidden, FilterMode = FilterMode.AllTraffic, DiagnosticDurationMs = 250 });
                 byte[] before = File.ReadAllBytes(store.FilePath); vm.LoadSettings(); Pump();
                 Require(effects.SelectedItem == null && vm.SettingsStatus.Contains("indisponível"), "Hidden saved mode needs deliberate replacement");
-                ClickStart(); Stopped(); Require(status.Text.Contains("INCOMPATÍVEL"), "No fake global equivalent or unsafe reordering");
+                ClickStart(); Stopped(); Require((status.Text.Contains("indisponível") && vm.StartStatusText.Contains("INCOMPATÍVEL")), "No fake global equivalent or unsafe reordering");
+                InvokeButton(pulse); Require(!engine.IsEffectActive && !engine.IsCaptureRequested, "Unavailable mode cannot pulse or open capture");
+                vm.SaveSettingsCommand.Execute(null);
                 Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Hidden configuration remains untouched");
+                CapturePanel(window, "artifacts/driver/screenshots", "unavailable-saved-" + hidden);
             }
             Select(DiagnosticMode.DualTokenBucket);
             vm.CustomFilterText = "203.0.113.88:4567 secret-token";
@@ -169,13 +178,15 @@ internal static partial class Program
             {
                 engine.NetworkOpenFailureOverride = f => { Require(f == "outbound", "Custom/legacy config cannot widen applied filter"); return code; };
                 ClickStart(); Stopped();
-                Require(status.Text.Contains("Win32 " + code) && vm.SupportDiagnosticText.Contains("Win32=" + code), "Native failure exact code remains visible/copiable");
+                Require(status.Text.Contains("Win32 " + code) && vm.SupportDiagnosticText.Contains("Win32=" + code), "Compact native error and internal sanitized evidence");
+                CheckStateColor(window, "PARADO", "#8D93AA");
+                CapturePanel(window, "artifacts/driver/screenshots", "start-negative-win32-" + code);
             }
             engine.NetworkOpenFailureOverride = null;
-            InvokeButton((Button)window.FindName("CopyDiagnosticButton"));
+            Require(window.FindName("CopyDiagnosticButton") == null, "No diagnostic copy UI"); vm.CopyDiagnosticCommand.Execute(null);
             Require(Clipboard.GetText() == vm.SupportDiagnosticText, "Explicit Clipboard read-back");
             Require(!Clipboard.GetText().Contains("203.0.113") && !Clipboard.GetText().Contains("secret-token") && !Clipboard.GetText().Contains("PID") && !Clipboard.GetText().Contains("FLOW"), "No sensitive values or target prerequisites in support text");
-            Console.WriteLine("PASS outbound-only native UI: all twelve exposed effects; real UIA START/STOP without target; read-only legacy migration; hidden modes refused; Win32 failure injection; Clipboard. Physical keyboard and user's PC NOT tested.");
+            Console.WriteLine("PASS outbound-only native UI: all four favorites; external-process UIA START/STOP without target; rejected eight/legacy refused; short Win32 errors; internal sanitized snapshot. Physical keyboard and user's PC NOT tested.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

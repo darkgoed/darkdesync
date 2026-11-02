@@ -1,0 +1,7 @@
+[
+  { "Mode": "DualTokenBucket", "DurationMs": 800, "Category": "Aggressive", "Note": "observação subjetiva; não é medida objetiva." },
+  { "Mode": "FlowAwareShaping", "DurationMs": 800, "Category": "Balanced", "Note": "observação subjetiva; não é medida objetiva." },
+  { "Mode": "OutboundFreeze", "DurationMs": 800, "Category": "Aggressive", "Note": "injogável nos testes pessoais. Seleção não é bloqueada." },
+  { "Mode": "BandwidthShaping", "DurationMs": 800, "Category": "Balanced", "Note": "observação subjetiva; não é medida objetiva." },
+  { "Mode": "OutboundFreeze", "DurationMs": 250, "Category": "Legit", "Note": "melhor uso relatado pelo proprietário; sem garantia em jogo." }
+]

@@ -12,13 +12,13 @@ public sealed class EffectExperienceTests
     [InlineData(DiagnosticMode.FlowAwareShaping, 800, "Equilibrado", "#78350F")]
     [InlineData(DiagnosticMode.OutboundFreeze, 800, "Agressivo", "#7F1D1D")]
     [InlineData(DiagnosticMode.BandwidthShaping, 800, "Equilibrado", "#78350F")]
-    [InlineData(DiagnosticMode.OutboundFreeze, 250, "Legítimo", "#14532D")]
+    [InlineData(DiagnosticMode.OutboundFreeze, 250, "Legit", "#14532D")]
     public void ExactPersonalObservationsOnly(DiagnosticMode mode, int ms, string label, string background)
     {
         var rating = EffectExperienceCatalog.Rating(mode, ms);
         Assert.Equal(label, rating.Label); Assert.Equal(background, rating.Background);
-        Assert.Equal("Não testado", EffectExperienceCatalog.Rating(mode, ms - 1).Label);
-        Assert.Equal("Não testado", EffectExperienceCatalog.Rating(mode, ms + 1).Label);
+        Assert.Equal("Não avaliado", EffectExperienceCatalog.Rating(mode, ms - 1).Label);
+        Assert.Equal("Não avaliado", EffectExperienceCatalog.Rating(mode, ms + 1).Label);
         if (mode == DiagnosticMode.OutboundFreeze && ms == 800) Assert.Contains("injogável", rating.Note);
     }
 
@@ -28,33 +28,35 @@ public sealed class EffectExperienceTests
         foreach (int ms in new[] { 0, 175, 200, 250, 500, 800 })
         {
             var rating = EffectExperienceCatalog.Rating(mode, ms);
-            Assert.Equal("Não testado", rating.Label); Assert.Equal("#374151", rating.Background);
+            Assert.Equal("Não avaliado", rating.Label); Assert.Equal("#374151", rating.Background);
         }
     }
 
     [Fact]
-    public void StylesChangeOnlyTime_BalancedHasNoInventedFixedTime_ManualCanOverride()
+    public void OnlyTwoPrimaryStyles_ManualRequiresExplicitChoice()
         => ConfigurationBehaviorTests.WithVm((vm, engine, _, dir) =>
         {
-            vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.HeavyTailJitter);
-            Assert.Equal(200, vm.DiagnosticCycleDurationMs); Assert.Equal("Personalizado", vm.SelectedPulseStyle);
-            foreach (var row in new[] { ("Legítimo", 250), ("Agressivo", 800), ("Equilibrado", 800) })
+            vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.DualTokenBucket);
+            Assert.Equal(200, vm.DiagnosticCycleDurationMs); Assert.Equal("Teste manual", vm.SelectedPulseStyle);
+            foreach (var row in new[] { ("Legit", 250), ("Agressivo", 800) })
             {
                 vm.SelectedPulseStyle = row.Item1; Assert.Equal(row.Item2, vm.DiagnosticCycleDurationMs);
-                Assert.Equal(ModeCatalog.Name(DiagnosticMode.HeavyTailJitter), vm.SelectedDiagnosticModeText);
-                Assert.Equal("Não testado", vm.EffectRatingText); Assert.False(engine.IsCaptureRequested);
+                Assert.Equal(ModeCatalog.Name(DiagnosticMode.DualTokenBucket), vm.SelectedDiagnosticModeText);
+                Assert.Equal(EffectExperienceCatalog.Rating(DiagnosticMode.DualTokenBucket, row.Item2).Label, vm.EffectRatingText); Assert.False(engine.IsCaptureRequested);
             }
-            vm.DiagnosticCycleDurationMs = 317; Assert.Equal("Equilibrado", vm.SelectedPulseStyle);
-            vm.SelectedPulseStyle = "Legítimo"; vm.DiagnosticCycleDurationMs = 275;
-            Assert.Equal("Personalizado", vm.SelectedPulseStyle); Assert.Equal(275, vm.DiagnosticCycleDurationMs);
+            vm.DiagnosticCycleDurationMs = 317; Assert.Equal(800, vm.DiagnosticCycleDurationMs); Assert.Equal("Agressivo", vm.SelectedPulseStyle);
+            vm.IsManualDurationEnabled = true; vm.DiagnosticCycleDurationMs = 317;
+            Assert.Equal("Teste manual", vm.SelectedPulseStyle); Assert.Equal(317, vm.DiagnosticCycleDurationMs);
+            vm.SelectedPulseStyle = "Legit"; vm.DiagnosticCycleDurationMs = 275;
+            Assert.Equal("Legit", vm.SelectedPulseStyle); Assert.Equal(250, vm.DiagnosticCycleDurationMs);
+            Assert.Equal(new[] { "Legit", "Agressivo" }, vm.PulseStyleOptions);
             Assert.False(File.Exists(Path.Combine(dir, "settings.json")));
             Assert.Null(EffectExperienceCatalog.FixedDuration(PulseStyle.Balanced));
         }, outboundOnly: true);
 
     [Theory]
-    [InlineData("Personalizado", 175)]
-    [InlineData("Legítimo", 250)]
-    [InlineData("Equilibrado", 347)]
+    [InlineData("Teste manual", 175)]
+    [InlineData("Legit", 250)]
     [InlineData("Agressivo", 800)]
     public void ExplicitSaveLoadDefaultsRoundtrip_LeavesChoiceFileAndCaptureAlone(string style, int ms)
         => ConfigurationBehaviorTests.WithVm((vm, engine, _, dir) =>
@@ -63,14 +65,14 @@ public sealed class EffectExperienceTests
             vm.SelectedPulseStyle = style; vm.DiagnosticCycleDurationMs = ms;
             vm.SaveSettingsCommand.Execute(null); var file = Path.Combine(dir, "settings.json"); byte[] original = File.ReadAllBytes(file);
             string rating = vm.EffectRatingText;
-            vm.SelectedPulseStyle = "Personalizado"; vm.DiagnosticCycleDurationMs = 91;
+            vm.SelectedPulseStyle = "Teste manual"; vm.DiagnosticCycleDurationMs = 91;
             Assert.Equal(original, File.ReadAllBytes(file)); vm.LoadSettings();
             Assert.Equal(style, vm.SelectedPulseStyle); Assert.Equal(ms, vm.DiagnosticCycleDurationMs);
             Assert.Equal(rating, vm.EffectRatingText); Assert.Equal(ModeCatalog.Name(DiagnosticMode.OutboundFreeze), vm.SelectedDiagnosticModeText);
             Assert.Equal(original, File.ReadAllBytes(file)); Assert.False(engine.IsCaptureRequested);
             vm.ResetSettingsCommand.Execute(null);
-            Assert.Equal(200, vm.DiagnosticCycleDurationMs); Assert.Equal("Personalizado", vm.SelectedPulseStyle);
-            Assert.Equal("Não testado", vm.EffectRatingText); Assert.Equal(original, File.ReadAllBytes(file));
+            Assert.Equal(200, vm.DiagnosticCycleDurationMs); Assert.Equal("Teste manual", vm.SelectedPulseStyle);
+            Assert.Equal("Não avaliado", vm.EffectRatingText); Assert.Equal(original, File.ReadAllBytes(file));
         }, outboundOnly: true);
 
     [Fact]
@@ -81,7 +83,7 @@ public sealed class EffectExperienceTests
             File.WriteAllText(file, "{\"DiagnosticMode\":\"PacketSizeAwareShaping\",\"DiagnosticDurationMs\":731}");
             byte[] original = File.ReadAllBytes(file); vm.LoadSettings();
             Assert.Null(vm.SelectedOutboundEffect); Assert.Equal(731, vm.DiagnosticCycleDurationMs);
-            Assert.Equal("Personalizado", vm.SelectedPulseStyle); Assert.Equal("Não testado", vm.EffectRatingText);
+            Assert.Equal("Teste manual", vm.SelectedPulseStyle); Assert.Equal("Não avaliado", vm.EffectRatingText);
             Assert.Equal(original, File.ReadAllBytes(file)); Assert.False(engine.IsCaptureRequested);
             Assert.Equal(PulseStyle.Custom, (new AppSettings { PulseStyle = PulseStyle.Legitimate, DiagnosticDurationMs = 731 }).Validate().PulseStyle);
         }, outboundOnly: true);
@@ -109,18 +111,18 @@ public sealed class EffectExperienceTests
     }
 
     [Fact]
-    public void StyleOrManualDurationChangeCancelsPulseWithoutStartingOrClosingCapture()
+    public void StyleOrManualDurationChangeAffectsOnlyNextPulse()
         => ConfigurationBehaviorTests.WithVm((vm, engine, _, _) =>
         {
             vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.DualTokenBucket);
             ArmedCaptureTests.ModelArm(engine);
             Assert.True(engine.TriggerArmedEffect(DiagnosticMode.DualTokenBucket, 800));
-            vm.SelectedPulseStyle = "Legítimo";
-            Assert.False(engine.IsEffectActive); Assert.True(engine.IsCaptureRequested); Assert.True(engine.IsRunning);
-            Assert.Equal(DiagnosticMode.None, engine.ActiveDiagnosticMode);
-            Assert.True(engine.TriggerArmedEffect(DiagnosticMode.DualTokenBucket, 250));
-            vm.DiagnosticCycleDurationMs = 317;
-            Assert.False(engine.IsEffectActive); Assert.Equal("Personalizado", vm.SelectedPulseStyle);
+            vm.SelectedPulseStyle = "Legit";
+            Assert.True(engine.IsEffectActive); Assert.True(engine.IsCaptureRequested); Assert.True(engine.IsRunning);
+            Assert.Equal(DiagnosticMode.DualTokenBucket, engine.ActiveDiagnosticMode);
+            Assert.False(engine.TriggerArmedEffect(DiagnosticMode.DualTokenBucket, 250));
+            vm.IsManualDurationEnabled = true; vm.DiagnosticCycleDurationMs = 317;
+            Assert.True(engine.IsEffectActive); Assert.Equal("Teste manual", vm.SelectedPulseStyle);
             Assert.Equal(ModeCatalog.Name(DiagnosticMode.DualTokenBucket), vm.SelectedDiagnosticModeText);
             engine.Stop();
         }, outboundOnly: true);

@@ -35,7 +35,7 @@ public static class ModeCatalog
 
     // Keep legacy identities/parser, but expose only genuine global outbound effects.
     public static IReadOnlyDictionary<string, DiagnosticMode> OutboundChoices { get; } =
-        Choices.Where(p => PersonalRanking250ms.Contains(p.Value) || p.Value == DiagnosticMode.BandwidthShaping || OutboundPulseScheduler.Handles(p.Value))
+        Choices.Where(p => PersonalRanking250ms.Contains(p.Value) || p.Value == DiagnosticMode.BandwidthShaping)
             .ToDictionary(p => p.Key, p => p.Value);
 
     private static string Label(DiagnosticMode mode)
