@@ -295,6 +295,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     // Diagnostic mode selection
     private string _selectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.OutboundFreeze);
     public List<string> DiagnosticModeOptions { get; }
+    // WPF rejects an out-of-list SelectedItem by retaining the previous value.
+    // An explicit null clears the selector for an incompatible saved enum instead
+    // of falsely displaying an old supported choice while START is refused.
+    public string? SelectedOutboundEffect
+    {
+        get => _unavailableSavedMode != null ? null : SelectedDiagnosticModeText;
+        set { if (value != null) SelectedDiagnosticModeText = value; }
+    }
     public bool IsExperimentalSelected => ModeCatalog.Parse(_selectedDiagnosticModeText) == DiagnosticMode.ControlledPacketReordering;
     private bool _experimentalOptIn;
     public bool ExperimentalOptIn
@@ -324,6 +332,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 if (_unavailableSavedMode != null)
                     SettingsStatus = "Efeito Outbound selecionado. O arquivo antigo só será alterado ao Salvar.";
                 _unavailableSavedMode = null;
+                OnPropertyChanged(nameof(SelectedOutboundEffect));
                 CancelCurrentPulse();
                 ExperimentalOptIn = false;
                 GlobalPacketSizeConsent = false;
@@ -463,6 +472,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string StatusColorBrush => State switch
     {
         DesyncStateMachine.State.Idle => "#A78BFA",       // Neon / Cool Blue
+        DesyncStateMachine.State.Armed => "#06D6A0",
         DesyncStateMachine.State.Active => "#EF233C",     // Vivid Red
         DesyncStateMachine.State.Restoring => "#FF9F1C",  // Warning Orange
         _ => "#6C757D"
@@ -1066,6 +1076,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             _selectedDiagnosticModeText = _unavailableSavedMode.Value.ToString();
             OnPropertyChanged(nameof(SelectedDiagnosticModeText));
+            OnPropertyChanged(nameof(SelectedOutboundEffect));
             OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
         }
         else SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);

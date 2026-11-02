@@ -77,6 +77,7 @@ public sealed class OutboundInterfaceTests
             if (unavailable)
             {
                 Assert.Contains("indisponível", vm.SettingsStatus);
+                Assert.Null(vm.SelectedOutboundEffect);
                 Assert.DoesNotContain(vm.SelectedDiagnosticModeText, vm.DiagnosticModeOptions);
                 int attempts = 0; e.NetworkOpenFailureOverride = _ => { attempts++; return 5; };
                 vm.ToggleEngineCommand.Execute(null); vm.TriggerCycleCommand.Execute(null);
@@ -85,6 +86,7 @@ public sealed class OutboundInterfaceTests
                 vm.SaveSettingsCommand.Execute(null);
                 Assert.Equal(mode, store.Load().DiagnosticMode);
                 vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.OutboundFreeze);
+                Assert.Equal(ModeCatalog.Name(DiagnosticMode.OutboundFreeze), vm.SelectedOutboundEffect);
                 vm.SaveSettingsCommand.Execute(null);
                 Assert.Equal(DiagnosticMode.OutboundFreeze, store.Load().DiagnosticMode);
             }
