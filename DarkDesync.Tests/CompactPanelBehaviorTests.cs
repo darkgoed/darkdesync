@@ -37,20 +37,25 @@ public sealed class CompactPanelBehaviorTests
             Assert.Equal(before, File.ReadAllBytes(path)); Assert.False(engine.IsCaptureRequested);
         }, outboundOnly: true);
 
-    [Fact]
-    public void PresetDuringPulseDoesNotChangeDeadlineOrReleasePendingPackets()
+    [Theory]
+    [InlineData(DiagnosticMode.DualTokenBucket)]
+    [InlineData(DiagnosticMode.FlowAwareShaping)]
+    [InlineData(DiagnosticMode.OutboundFreeze)]
+    [InlineData(DiagnosticMode.BandwidthShaping)]
+    public void PresetDuringPulseDoesNotChangeDeadlineOrReleasePendingPackets(DiagnosticMode mode)
         => ConfigurationBehaviorTests.WithVm((vm, engine, _, _) =>
         {
-            vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.TwoPhaseDrain);
-            ArmedCaptureTests.ModelArm(engine); Assert.True(engine.TriggerArmedEffect(DiagnosticMode.TwoPhaseDrain, 800));
+            vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode);
+            ArmedCaptureTests.ModelArm(engine); Assert.True(engine.TriggerArmedEffect(mode, 800));
+            int released = 0; engine.SendOverride = (_, _, _) => { released++; return true; };
             Assert.True(ShapingEffectsTests.Capture(engine, 19, protocol: 17));
             var field = typeof(PacketEngine).GetField("_effectDeadline", BindingFlags.NonPublic | BindingFlags.Instance)!;
-            object? deadline = field.GetValue(engine); long released = engine.ScheduledPacketsReleased;
+            object? deadline = field.GetValue(engine); Assert.Equal(0, released);
             vm.SelectPulseStyleCommand.Execute("Legit");
             Assert.Equal(250, vm.DiagnosticCycleDurationMs); Assert.True(engine.IsEffectActive);
-            Assert.Equal(deadline, field.GetValue(engine)); Assert.Equal(released, engine.ScheduledPacketsReleased);
+            Assert.Equal(deadline, field.GetValue(engine)); Assert.Equal(0, released);
             vm.SelectPulseStyleCommand.Execute("Agressivo"); Assert.Equal(deadline, field.GetValue(engine));
-            engine.Stop(); Assert.Equal(released + 1, engine.ScheduledPacketsReleased);
+            engine.Stop(); Assert.Equal(1, released);
         }, outboundOnly: true);
 
     [Fact]
