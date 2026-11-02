@@ -24,12 +24,19 @@ public sealed class OutboundEightDriverTests(ITestOutputHelper output)
         {
             string? portLine = await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
             Assert.True(int.TryParse(portLine, out int port) && port > 0, "Owned child sink must bind loopback");
+            uint pid = (uint)Environment.ProcessId;
+            engine.ObserveTarget(pid);
             using var sender = new UdpClient(); sender.Connect(IPAddress.Loopback, port);
-            engine.UpdateFilter(FilterMode.LegacyGlobalOutbound); engine.OutboundSeedOverride = 42;
-            Assert.True(engine.BeginLegacyGlobalContinuous(DiagnosticMode.None)); Assert.Equal("outbound", engine.CurrentFilter);
+            int sourcePort = ((IPEndPoint)sender.Client.LocalEndPoint!).Port;
+            engine.OutboundSeedOverride = 42;
+            // Explicit test-only isolation, not a production filter change. WPF
+            // tests separately assert literal GLOBAL outbound for all 12 effects.
+            // Background VM oversize packets must not cancel this measurement.
+            engine.StartArmed(FilterMode.Custom, pid, 0, $"outbound and udp and udp.SrcPort == {sourcePort}");
             byte[] Payload(byte id) { var b = Enumerable.Range(0, 512).Select(i => (byte)(i ^ id)).ToArray(); b[0] = id; return b; }
             await sender.SendAsync(Payload(240), 512);
             Assert.Equal(Convert.ToBase64String(Payload(240)), await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+            await UdpDriverIntegrationTests.WaitUntil(() => engine.IsRunning && engine.ScopeStatus.UdpScoped > 0);
             Assert.Equal(0, engine.PacketsThrottled); Assert.Equal(0, engine.IntentionalBurstDrops);
             int count = mode == DiagnosticMode.GilbertElliottBurstLoss ? 100 : 12;
             var received = new List<byte>(); var times = new List<double>();
@@ -50,6 +57,8 @@ public sealed class OutboundEightDriverTests(ITestOutputHelper output)
             await UdpDriverIntegrationTests.WaitUntil(() => engine.StateMachine.Current == DesyncStateMachine.State.Armed);
             Assert.True(engine.IsRunning); engine.Stop();
             await sender.SendAsync(Payload(250), 512); await read.WaitAsync(TimeSpan.FromSeconds(5));
+            output.WriteLine($"Native measurement {mode}: source-port-isolated own UDP -> child; received=[{string.Join(',', received)}]; ms=[{string.Join(',', times.Select(t => t.ToString("F1")))}]; held={engine.PacketsThrottled}; reordered={engine.IntentionallyReorderedPairs}; drops={engine.IntentionalBurstDrops}; fallback={engine.LastShapingFallback ?? "none"}");
+            Assert.Null(engine.LastShapingFallback);
             Assert.Equal(received.Count, received.Distinct().Count());
             if (mode == DiagnosticMode.GilbertElliottBurstLoss)
             {
