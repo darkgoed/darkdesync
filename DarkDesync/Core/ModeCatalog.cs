@@ -40,10 +40,9 @@ public static class ModeCatalog
         PersonalRanking250ms.Concat(LegacyLabels.Values.Except(PersonalRanking250ms))
             .ToDictionary(Label, mode => mode);
 
-    // Keep legacy identities/parser, but expose only genuine global outbound effects.
+    // Production allowlist. Legacy identities/parser are read compatibility, not permission to run.
     public static IReadOnlyDictionary<string, DiagnosticMode> OutboundChoices { get; } =
-        Choices.Where(p => PersonalRanking250ms.Contains(p.Value) || p.Value == DiagnosticMode.BandwidthShaping ||
-            p.Value is >= DiagnosticMode.PacketDuplication and <= DiagnosticMode.DeadlineAwareScheduling)
+        Choices.Where(p => PersonalRanking250ms.Contains(p.Value) || p.Value == DiagnosticMode.BandwidthShaping)
             .ToDictionary(p => p.Key, p => p.Value);
 
     private static string Label(DiagnosticMode mode)

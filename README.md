@@ -6,7 +6,7 @@ Aplicativo Windows WPF C#/.NET 8 para ensaios de rede autorizados. Repositório 
 
 O filtro é literalmente `outbound`: TODOS os aplicativos do Windows, sem PID ou seleção oculta de protocolo. O aviso fixo permanece visível.
 
-1. Escolha um dos quatro favoritos ou sete técnicas e a duração: 0–800 ms, padrão 200 ms; 0 desativa.
+1. Escolha um dos quatro efeitos aprovados e a duração: 0–800 ms, padrão 200 ms; 0 desativa.
 2. START abre captura como administrador em ARMADO/pass-through, SEM efeito.
 3. Espaço ou Pulso manual aplica UM pulso; ao terminar volta a ARMADO sem fechar o handle. Tecla mantida não repete; não existe ciclo automático. O hook não consome a tecla.
 4. STOP cancela e libera pendências com handle ainda válido, encerra workers/captura e retorna a PARADO. Carregar/padrões e fechar também encerram captura. Sem START, Espaço não abre captura.
@@ -31,13 +31,7 @@ Para atualizar avaliações sem recompilar, edite `effect-assessments.json` com 
 | 2º Flow-Aware Shaping | Caminho anterior: buckets independentes de 8 KiB/s por fluxo IPv4 TCP/UDP, FIFO por fluxo e round-robin. |
 | 3º Outbound Freeze | Caminho anterior: retém saída até fim/cancelamento, libera FIFO. |
 | Bandwidth Shaping | Caminho anterior: serialização agregada a 16 KiB/s por bytes IP. |
-| Packet Duplication | UDP IPv4/IPv6, até 1400 bytes IP, uma cópia extra por datagrama; máximo 16 cópias/32 KiB por pulso. TCP/impostor passam. |
-| ECN Congestion Marking | TCP/UDP IPv4/IPv6 até 4096 bytes IP: só ECT(0)/ECT(1) vira CE; Not-ECT/CE passam sem mudança. |
-| DSCP Traffic Marking | TCP/UDP IPv4/IPv6 até 4096 bytes IP: DSCP configurável 0–63, padrão 8; preserva ECN. Valor congelado no início do pulso. |
-| MTU / Fragmentation · laboratório local | Somente sondas UDP IPv4 nos próprios sockets loopback, DF solicitado ligado/desligado, MTU lido da interface; relatório de entrega exata. Não é fragmentação GLOBAL. |
-| TCP ACK Pacing | Só ACK puro TCP IPv4/IPv6, FIFO por fluxo: primeiro alvo 8 ms e espaçamento 12 ms, TTL 64 ms limitado ao pulso; round-robin até 128 fluxos/512 pacotes/768 KiB. |
-| Inter-Packet Gap Equalization | FIFO por fluxo, intervalo EMA de chegadas limitado 6–24 ms (inicial 8); release usa último envio real, não catch-up de burst, salvo TTL 96 ms/fim/STOP. Independe de bytes por segundo. |
-| Deadline-Aware Scheduling | EDF entre cabeças FIFO: deadline idade 16 ms para IP <=256 bytes / 48 ms para maiores; FIFO pode herdar deadline anterior. Reserva de serviço pelo backlog antecipa até 24 ms, não taxa constante ou atraso fixo. |
+
 
 Gap/Deadline suportam TCP/UDP IPv4/IPv6 simples até 4096 bytes IP; não alteram bytes, checksum ou endereço. Limites 128 fluxos, 512 pacotes, 768 KiB; overload cancela/drena fail-open. Tempo é alvo sob relógio monotônico, não garantia hard real-time do Windows. Deadlines/TTL/fim/STOP priorizam entrega e podem comprimir pacing; nunca aguardam pacote futuro para liberar fila.
 
@@ -56,7 +50,7 @@ Os quatro favoritos, duplicação e ACK pacing preservam payload/checksums/ender
 
 ## Configurações e legado
 
-Somente os quatro favoritos + sete técnicas acima são selecionáveis. Os oito rejeitados, Packet Size-Aware, inbound, duplex e reordering antigo NÃO estão no dropdown. Não existe checkbox de consentimento por efeito. Enum append-only: todos IDs 0–35 preservados, novos schedulers 36–37. Parser e APIs/schedulers legados permanecem internos para leitura/regressão, inacessíveis pelos controles de produção.
+Somente os quatro favoritos acima são selecionáveis. Pela issue #33, Packet Duplication, ECN Congestion Marking, DSCP Traffic Marking, MTU / Fragmentation, TCP ACK Pacing, Inter-Packet Gap Equalization e Deadline-Aware Scheduling foram retirados. Os oito anteriormente rejeitados, Packet Size-Aware, inbound, duplex e reordering antigo também NÃO estão no dropdown. Não existe checkbox de consentimento por efeito. Enum append-only: todos IDs 0–37 e labels preservados. Parser e schedulers legados ficam para leitura/regressão; a VM de produção instala uma política irreversível no motor que bloqueia modos fora dos quatro, inclusive por chamada direta de pulso/controller. Detalhes das sete técnicas descritos acima são históricos, não opções operacionais.
 
 Efeito salvo removido deixa seleção indisponível: START, pulso e Salvar ficam bloqueados até escolha explícita de uma opção suportada. Carregar não regrava nem substitui por favorito silenciosamente; tempo/campos/enums antigos permanecem. Após escolha válida, Salvar grava só a seleção válida em `%LOCALAPPDATA%/DarkDesync/settings.json`. Captura efetiva da UI é sempre Outbound GLOBAL, sem PID; legado estrito PID/FLOW permanece interno aos testes e exige tuplas comprovadas.
 
@@ -83,6 +77,6 @@ Auditoria, riscos, escopo inspecionado/não inspecionado, evidências e rollback
 
 Histórico: .7 entregou os oito schedulers e .8 adicionou avaliações. A especificação atual de painel compacto e dois presets corrige .8 conforme [issues #25/#23](audit/COMPACT_PANEL_20261102.md). Screenshots reais do desktop Windows e manifests de dimensões/estado acompanham a release; não são mockups. Os gates originais de driver/CI permanecem.
 
-Releases: https://github.com/darkgoed/darkdesync/releases/latest (autenticação necessária). Pacote único win-x64, SOURCE_COMMIT e SHA256; .8 (e anteriores) permanecem rollback. O pacote publicado vem do run verde do SHA final de main.
+Releases: https://github.com/darkgoed/darkdesync/releases/latest (autenticação necessária). Pacote único win-x64, SOURCE_COMMIT e SHA256; .11 (e anteriores) permanecem rollback. O pacote publicado vem do run verde do SHA final de main.
 
 Não foi testado o PC do usuário, teclado físico, interface física/internet adversa, Roblox Player ou anticheat. UI Automation simula seleção e eventos hotkey/WPF, não comprova efeito em jogo. Não há injeção em jogos, bypass, exploit garantido ou promessa de vantagem em partidas públicas.

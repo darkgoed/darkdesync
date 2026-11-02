@@ -42,7 +42,7 @@ internal static partial class Program
             Require(controls.OfType<ComboBox>().Count() == 2, "Only effect, duration-style and hotkey selectors; no process/network/protocol picker");
             Require(((TextBlock)window.FindName("OutboundScope")).Text.Contains("GLOBAL"), "Fixed global scope warning");
             Require(!controls.OfType<CheckBox>().Any(c => c.Content is string t && (t.Contains("alvo") || t.Contains("EXPERIMENTAL"))), "No target/experimental controls");
-            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping", "Packet Duplication", "ECN Congestion Marking", "DSCP Traffic Marking", "MTU / Fragmentation · laboratório local", "TCP ACK Pacing", "Inter-Packet Gap Equalization", "Deadline-Aware Scheduling" }), "Four favorites plus seven real techniques; no fake or rejected modes");
+            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping" }), "Exactly four approved effects; all seven newly rejected modes remain unavailable");
             Require(((TextBlock)window.FindName("UnavailableTechniques")).Text.Contains("UDMUX"), "Unsupported topology/channel techniques explicitly unavailable, not selectable");
             Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.OutboundFreeze) && Equals(mode.SelectedItem, vm.SelectedDiagnosticModeText), "Reorder must not pick rank 1 by accident");
             Require(vm.DiagnosticCycleDurationMs == 200 && vm.SelectedHotkeyName == "Espaço", "Default pulse/hotkey preserved");
@@ -74,6 +74,8 @@ internal static partial class Program
                 byte[] before = File.ReadAllBytes(store.FilePath); vm.LoadSettings(); Pump();
                 Require(mode.SelectedItem == null && vm.SettingsStatus.Contains("indisponível"), "Hidden saved effect is explicitly incompatible, never silently substituted");
                 InvokeButton(startButton);
+                vm.TriggerCycleCommand.Execute(null);
+                Require(!engine.IsEffectActive, "Legacy saved effect cannot pulse");
                 Require((status.Text.Contains("indisponível") && vm.StartStatusText.Contains("INCOMPATÍVEL")) && state.Text == "PARADO" && !engine.IsCaptureRequested, "Hidden mode cannot arm global");
                 Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Refusal does not rewrite old settings");
                 vm.SaveSettingsCommand.Execute(null); Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)) && store.Load().DiagnosticMode == hidden, "Save refused until explicit valid selection; original file retained");

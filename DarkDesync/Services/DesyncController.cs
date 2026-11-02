@@ -37,7 +37,7 @@ public sealed class DesyncController : IDisposable
     {
         lock (_cycleLock)
         {
-            if (_disposed || !Enum.IsDefined(mode) || CurrentState != DesyncStateMachine.State.Idle ||
+            if (_disposed || !Enum.IsDefined(mode) || _packetEngine?.CanExecuteEffect(mode) == false || CurrentState != DesyncStateMachine.State.Idle ||
                 _activeCycleTask is { IsCompleted: false }) return false;
             if (legacyGlobal && (!globalConsent || _packetEngine == null))
             {

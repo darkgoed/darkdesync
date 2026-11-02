@@ -30,7 +30,7 @@ public sealed class RetiredEffectTests
             vm.SelectedOutboundEffect = ModeCatalog.Name(DiagnosticMode.FlowAwareShaping); vm.SaveSettingsCommand.Execute(null);
             Assert.Equal(DiagnosticMode.FlowAwareShaping, store.Load().DiagnosticMode);
             Assert.Equal(731, store.Load().DiagnosticDurationMs);
-            vm.ResetSettingsCommand.Execute(null); Assert.Equal(11, vm.DiagnosticModeOptions.Count);
+            vm.ResetSettingsCommand.Execute(null); Assert.Equal(4, vm.DiagnosticModeOptions.Count);
             Assert.DoesNotContain(ModeCatalog.Name(mode), vm.DiagnosticModeOptions);
             Assert.Equal(mode, ModeCatalog.Parse(ModeCatalog.Name(mode))); // IDs/parser remain legacy-compatible.
         }, outboundOnly: true);

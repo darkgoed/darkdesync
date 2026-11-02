@@ -96,6 +96,18 @@ public sealed partial class PacketEngine : IDisposable
 
     // Diagnostic mode parameters
     private volatile DiagnosticMode _activeDiagnosticMode = DiagnosticMode.None;
+    private bool _approvedOutboundOnly;
+    // One-way production policy; only the internal regression harness retains legacy execution.
+    internal void RestrictToApprovedOutboundEffects()
+    {
+        lock (_lifecycleLock)
+        {
+            StopCore();
+            lock (_packetLock) _approvedOutboundOnly = true;
+        }
+    }
+    internal bool CanExecuteEffect(DiagnosticMode mode) =>
+        !_approvedOutboundOnly || ModeCatalog.OutboundChoices.Values.Contains(mode);
     public DiagnosticMode ActiveDiagnosticMode
     {
         get => _activeDiagnosticMode;
@@ -103,6 +115,7 @@ public sealed partial class PacketEngine : IDisposable
         {
             lock (_packetLock)
             {
+                if (value != DiagnosticMode.None && !CanExecuteEffect(value)) return;
                 // Pending packets belong to the previous effect, never to its successor.
                 if (_activeDiagnosticMode != value) FlushThrottleQueueLocked();
                 _activeDiagnosticMode = value;
@@ -763,7 +776,7 @@ public sealed partial class PacketEngine : IDisposable
         lock (_packetLock)
         {
             if (_disposed || !_armedCapture || !_captureRequested || !_isRunning || _stopping ||
-                !Enum.IsDefined(mode) || durationMs <= 0) return false;
+                !Enum.IsDefined(mode) || !CanExecuteEffect(mode) || durationMs <= 0) return false;
             ExpireArmedEffectLocked();
             if (_stateMachine.Current != DesyncStateMachine.State.Armed) return false;
             if (mode == DiagnosticMode.MtuFragmentationLab && _mtuTask is { IsCompleted: false }) return false;
