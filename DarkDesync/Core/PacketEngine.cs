@@ -638,7 +638,17 @@ public sealed class PacketEngine : IDisposable
     private Timer? _effectTimer;
     public bool IsEffectActive
     {
-        get { lock (_packetLock) return _armedCapture && _stateMachine.Current == DesyncStateMachine.State.Active && _timestamp() < _effectDeadline; }
+        get
+        {
+            lock (_packetLock)
+            {
+                // New profiles publish completion only after timer/capture/release
+                // has drained under this lock. Clock expiry alone is NOT a flush.
+                // Capture/release still enforce the deadline before applying effects.
+                bool active = _armedCapture && _stateMachine.Current == DesyncStateMachine.State.Active;
+                return active && (IsScopedProfile(_armedScopeProfile) || _timestamp() < _effectDeadline);
+            }
+        }
     }
 
     private void PrepareArmedCapture()
