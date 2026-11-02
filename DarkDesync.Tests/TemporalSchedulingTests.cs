@@ -16,6 +16,14 @@ public sealed class TemporalSchedulingTests
         Assert.Equal(0,q.Count);Assert.Equal(0,q.Bytes);Assert.Equal(Enumerable.Range(0,10).Select(i=>(byte)i),result.Select(x=>x.Item1));return result;
     }
     [Fact]
+    public void GapAtZeroClockHasSameRelativeSchedule()
+    {
+        var q=new TemporalPulseQueue(DiagnosticMode.InterPacketGapEqualization,TemporalPulseQueue.T(800));
+        for(byte i=0;i<10;i++)q.Enqueue(Flow,P(i),0);
+        var result=new List<int>();for(int ms=0;ms<=96;ms++)while(q.TryDequeue(TemporalPulseQueue.T(ms),out _))result.Add(ms);
+        Assert.Equal(Schedule(DiagnosticMode.InterPacketGapEqualization).Select(x=>x.Ms-1000),result);
+    }
+    [Fact]
     public void GapIsDeterministicSizeIndependentRegularSpacing_NotFixedDelayOrBytesPerSecond()
     {
         var a=Schedule(DiagnosticMode.InterPacketGapEqualization);Assert.Equal(a,Schedule(DiagnosticMode.InterPacketGapEqualization));

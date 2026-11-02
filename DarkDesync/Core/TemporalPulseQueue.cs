@@ -9,6 +9,7 @@ internal sealed class TemporalPulseQueue(DiagnosticMode mode, long pulseDeadline
     {
         internal readonly Queue<(ThrottledPacket Packet, long Arrival)> Packets = new();
         internal long LastArrival, LastRelease, LastDeadline;
+        internal bool HasArrival, HasRelease;
         internal double GapMs = 8;
     }
     private readonly Dictionary<PulseShaper.Flow, Lane> _lanes = new();
@@ -30,7 +31,7 @@ internal sealed class TemporalPulseQueue(DiagnosticMode mode, long pulseDeadline
 
         if (mode == DiagnosticMode.InterPacketGapEqualization)
         {
-            if (lane.LastArrival != 0)
+            if (lane.HasArrival)
             {
                 double sample = (now - lane.LastArrival) * 1000d / Stopwatch.Frequency;
                 lane.GapMs = Math.Clamp(lane.GapMs * .875 + sample * .125, 6, 24);
@@ -44,7 +45,7 @@ internal sealed class TemporalPulseQueue(DiagnosticMode mode, long pulseDeadline
             packet.ReleaseAtTicks = Math.Min(pulseDeadline, Math.Max(lane.LastDeadline, now + T(packet.Length <= 256 ? 16 : 48)));
             lane.LastDeadline = packet.ReleaseAtTicks;
         }
-        lane.LastArrival = now; lane.Packets.Enqueue((packet, now)); Count++; Bytes += packet.Length; return true;
+        lane.LastArrival = now; lane.HasArrival = true; lane.Packets.Enqueue((packet, now)); Count++; Bytes += packet.Length; return true;
     }
     internal bool TryDequeue(long now, out ThrottledPacket? packet)
     {
@@ -56,7 +57,7 @@ internal sealed class TemporalPulseQueue(DiagnosticMode mode, long pulseDeadline
             if (!lane.Packets.TryPeek(out var item)) continue;
             var head = item.Packet;
             long due = mode == DiagnosticMode.InterPacketGapEqualization
-                ? Math.Min(head.ReleaseAtTicks, Math.Max(item.Arrival + T(2), lane.LastRelease == 0 ? item.Arrival + T(lane.GapMs) : lane.LastRelease + T(lane.GapMs)))
+                ? Math.Min(head.ReleaseAtTicks, Math.Max(item.Arrival + T(2), !lane.HasRelease ? item.Arrival + T(lane.GapMs) : lane.LastRelease + T(lane.GapMs)))
                 : Math.Max(item.Arrival + T(2), head.ReleaseAtTicks - T(Math.Min(24, (Count - 1) * 2)));
             due = Math.Min(head.ReleaseAtTicks, due);
             if (now < due) continue;
@@ -65,6 +66,7 @@ internal sealed class TemporalPulseQueue(DiagnosticMode mode, long pulseDeadline
         }
         if (chosen < 0) return false;
         var selected = _order[chosen]; packet = selected.Packets.Dequeue().Packet; selected.LastRelease = now;
+        selected.HasRelease = true;
         Count--; Bytes -= packet.Length; _cursor = (chosen + 1) % _order.Count; return true;
     }
     internal IEnumerable<ThrottledPacket> Drain()
