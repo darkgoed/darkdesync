@@ -61,6 +61,7 @@
      <Border x:Name="EffectRatingChip" Background="{Binding EffectRatingBackground}" CornerRadius="10" Padding="9,4" HorizontalAlignment="Left"><TextBlock x:Name="EffectRatingLabel" Text="{Binding EffectRatingText}" Foreground="{Binding EffectRatingForeground}" FontWeight="SemiBold" FontSize="11" /></Border>
      <TextBlock x:Name="EffectRatingNote" Text="{Binding EffectRatingNote}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,8,0,8" MaxHeight="74" FontSize="11" />
      <TextBlock Text="Sobre este efeito" Foreground="{StaticResource TextMutedBrush}" FontSize="11" ToolTip="{Binding EffectSupportText}" />
+     <TextBlock x:Name="UnavailableTechniques" Text="Indisponíveis: UDMUX · Multipath · NAT" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0" ToolTip="UDMUX: canais externos não comprovados. Multipath: exige duas rotas reais e topologia própria; IfIdx outbound é ignorado. NAT rebinding: exige gateway/NAT e servidor próprios com prova do mapeamento externo. Não são efeitos acionáveis." />
      <TextBlock Text="{Binding MtuLabSummary}" Visibility="{Binding IsMtuLabSelected, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0" />
     </StackPanel>
     <StackPanel Grid.Column="2" x:Name="DurationArea">

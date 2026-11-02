@@ -51,5 +51,7 @@ public enum DiagnosticMode
     EcnCongestionMarking = 32,
     DscpTrafficMarking = 33,
     MtuFragmentationLab = 34,
-    TcpAckPacing = 35
+    TcpAckPacing = 35,
+    InterPacketGapEqualization = 36,
+    DeadlineAwareScheduling = 37
 }

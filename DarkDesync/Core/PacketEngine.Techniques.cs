@@ -6,6 +6,7 @@ public sealed partial class PacketEngine
 {
     private void ResetTechniqueCounters()
     {
+        Interlocked.Exchange(ref _temporalHeld, 0); Interlocked.Exchange(ref _temporalReleased, 0);
         Interlocked.Exchange(ref _duplicateCopiesSent, 0); Interlocked.Exchange(ref _ecnMarked, 0);
         Interlocked.Exchange(ref _dscpMarked, 0); Interlocked.Exchange(ref _acksHeld, 0); Interlocked.Exchange(ref _acksReleased, 0);
     }
@@ -17,6 +18,14 @@ public sealed partial class PacketEngine
         byte[] bytes = new byte[length]; Marshal.Copy(buffer, bytes, 0, (int)length);
         if (!TechniquePackets.TryParse(bytes, out var layout))
         { RecordSend(SendPacket(buffer, length, native)); return false; }
+        if (_temporalQueue != null)
+        {
+            var packet = new ThrottledPacket { Data = bytes, Length = length, Address = native, TimestampTicks = _timestamp() };
+            if (_temporalQueue.Enqueue(TechniquePackets.Flow(bytes, layout), packet, packet.TimestampTicks))
+            { Interlocked.Increment(ref _temporalHeld); Interlocked.Increment(ref _packetsThrottled); return true; }
+            LastShapingFallback = "Fila temporal no limite; pulso cancelado/drenado (fail-open).";
+            CancelArmedEffectLocked(); RecordSend(SendPacket(buffer, length, native)); return false;
+        }
         if (_activeDiagnosticMode == DiagnosticMode.PacketDuplication)
         {
             bool sent = SendPacket(buffer, length, native); RecordSend(sent);

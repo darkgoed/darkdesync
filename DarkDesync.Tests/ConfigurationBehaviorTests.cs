@@ -156,7 +156,7 @@ public sealed class ConfigurationBehaviorTests
     [InlineData(DiagnosticMode.ControlledPacketReordering)]
     public void ScopedChoicesRoundtrip_ConsentNeverPersists_AndNoCaptureOnLoad(DiagnosticMode mode) => WithVm((vm, engine, controller, dir) =>
     {
-        Assert.Equal(22, vm.DiagnosticModeOptions.Count); // Legacy harness retains identities plus five techniques.
+        Assert.Equal(24, vm.DiagnosticModeOptions.Count); // Legacy harness retains all identities.
         vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode); vm.ExperimentalOptIn = true;
         vm.SaveSettingsCommand.Execute(null);
         var store = new SettingsStore(Path.Combine(dir, "settings.json"));
