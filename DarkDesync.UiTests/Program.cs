@@ -163,12 +163,16 @@ internal static class Program
             var own = new DarkDesync.Models.ProcessInfo { ProcessId = (uint)Environment.ProcessId, ProcessName = "UI-owned PID" };
             vm.Processes.Add(own); targetPicker.SelectedItem = own; Pump();
             Require(vm.SelectedProcess == own && vm.SelectedFilterModeText == vm.FilterModeOptions[2], "PID binding migrates GLOBAL to verified UI scope");
+            // Earlier settings roundtrip intentionally persisted Habilitado=false.
+            enabled.IsChecked = true; Pump();
+            Require(vm.CycleProfileEnabled, "Enable the profile before the pending START scenario");
             Require(optIn.IsVisible, "Reordering opt-in is visible");
             startButton.Command.Execute(null); Pump();
             Require(startStatus.Text.Contains("Opt-in") && !engine.IsCaptureRequested, "Opt-in preflight uses visible status");
             optIn.IsChecked = true; Pump();
             startButton.Command.Execute(null); Pump();
-            Require(Equals(startButton.Content, "STOP") && vm.StatusText == "AGUARDANDO" && startStatus.Text.Contains("Aguardando conexões"), "START button binding reflects pending capture, not active");
+            Require(Equals(startButton.Content, "STOP") && vm.StatusText == "AGUARDANDO" && startStatus.Text.Contains("Aguardando conexões"),
+                $"START button binding reflects pending capture, not active: button={startButton.Content}, status={vm.StatusText}, detail={startStatus.Text}");
             enabled.IsChecked = false; Pump();
             Require(!vm.CycleProfileEnabled && startStatus.Text.Contains("Habilitado"), "Enable checkbox binding gives explicit instruction");
             enabled.IsChecked = true; Pump();
