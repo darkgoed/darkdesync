@@ -42,7 +42,7 @@ internal static partial class Program
             Require(controls.OfType<ComboBox>().Count() == 2, "Only effect, duration-style and hotkey selectors; no process/network/protocol picker");
             Require(((TextBlock)window.FindName("OutboundScope")).Text.Contains("GLOBAL"), "Fixed global scope warning");
             Require(!controls.OfType<CheckBox>().Any(c => c.Content is string t && (t.Contains("alvo") || t.Contains("EXPERIMENTAL"))), "No target/experimental controls");
-            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping" }), "Exactly four favorites, rejected eight and PacketSize absent");
+            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping", "Packet Duplication", "ECN Congestion Marking", "DSCP Traffic Marking", "MTU / Fragmentation · laboratório local", "TCP ACK Pacing" }), "Four favorites plus five real techniques; rejected eight and PacketSize absent");
             Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.OutboundFreeze) && Equals(mode.SelectedItem, vm.SelectedDiagnosticModeText), "Reorder must not pick rank 1 by accident");
             Require(vm.DiagnosticCycleDurationMs == 200 && vm.SelectedHotkeyName == "Espaço", "Default pulse/hotkey preserved");
             Require(vm.IsLegacyGlobalSelected && vm.SelectedProcess == null && !engine.IsCaptureRequested && state.Text == "PARADO", "Default global is prepared, not auto-started");

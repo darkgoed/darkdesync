@@ -23,6 +23,7 @@ public sealed record AppSettings
     public string CustomFilter { get; init; } = "outbound";
     public int DiagnosticDurationMs { get; init; } = 200;
     public PulseStyle PulseStyle { get; init; } = PulseStyle.Custom;
+    public int DscpCodepoint { get; init; } = 8;
     public int GlobalDelayMs { get; init; } = 150;
     public int BurstLossPercentage { get; init; } = 50;
     public int AsymmetricInboundPercentage { get; init; } = 25;
@@ -39,6 +40,7 @@ public sealed record AppSettings
         Hotkey = Hotkey != null && HotkeyService.GetAvailableKeys().ContainsKey(Hotkey) ? Hotkey : "Espaço",
         CustomFilter = string.IsNullOrWhiteSpace(CustomFilter) ? "outbound" : CustomFilter,
         DiagnosticDurationMs = Math.Clamp(DiagnosticDurationMs, 0, 800),
+        DscpCodepoint = Math.Clamp(DscpCodepoint, 0, 63),
         PulseStyle = Enum.IsDefined(PulseStyle) && PulseStyle != PulseStyle.Balanced &&
             (EffectExperienceCatalog.FixedDuration(PulseStyle) is not int fixedMs || fixedMs == Math.Clamp(DiagnosticDurationMs, 0, 800))
             ? PulseStyle : PulseStyle.Custom,
