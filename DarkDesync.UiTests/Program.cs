@@ -38,7 +38,7 @@ internal static partial class Program
             var status = (TextBlock)window.FindName("StartStatus");
             var enabled = controls.OfType<CheckBox>().Single(c => Equals(c.Content, "Habilitado"));
             Require(window.FindName("PacketSizeConsent") == null, "No redundant per-mode consent UI");
-            Require(controls.OfType<ComboBox>().Count() == 2, "Only effect and hotkey selectors; no process/network/protocol picker");
+            Require(controls.OfType<ComboBox>().Count() == 3, "Only effect, duration-style and hotkey selectors; no process/network/protocol picker");
             Require(((TextBlock)window.FindName("OutboundScope")).Text == "Outbound · todos os aplicativos", "Fixed global scope warning");
             Require(!controls.OfType<CheckBox>().Any(c => c.Content is string t && (t.Contains("alvo") || t.Contains("EXPERIMENTAL"))), "No target/experimental controls");
             Require(vm.DiagnosticModeOptions.Count == 12 && vm.DiagnosticModeOptions.SequenceEqual(ModeCatalog.OutboundChoices.Keys) && !vm.DiagnosticModeOptions.Contains("Packet Size-Aware Shaping"), "Twelve genuine outbound effects, personal ranking intact");
@@ -47,6 +47,7 @@ internal static partial class Program
             Require(vm.IsLegacyGlobalSelected && vm.SelectedProcess == null && !engine.IsCaptureRequested && state.Text == "PARADO / PAUSADO", "Default global is prepared, not auto-started");
             Require(state.IsVisible && state.FontSize >= 22 && status.IsVisible, "Conspicuous capture state independent of pulse");
             Require(!vm.NetworkDiagnosticsText.Contains("TCP") && !vm.NetworkDiagnosticsText.Contains("UDP") && !vm.StartStatusText.Contains("PID"), "No protocol/PID prerequisites in the main flow");
+            VerifyExperienceUi(window, vm, store, engine);
             foreach (string effect in vm.DiagnosticModeOptions)
             {
                 mode.SelectedItem = effect; Pump();
@@ -89,7 +90,7 @@ internal static partial class Program
             Require(Clipboard.GetText() == vm.SupportDiagnosticText && !Clipboard.GetText().Contains("PID") && !Clipboard.GetText().Contains("FLOW"), "Explicit Clipboard read-back without target prerequisites");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
-            Console.WriteLine("PASS outbound-only WPF: five ranked choices, no network/process/protocol selectors, conspicuous state, old scopes migrated read-only, hidden enums retained/refused, Win32 failures, consent and Clipboard. No fabricated native success; real arming is tested by --driver-ui.");
+            Console.WriteLine("PASS outbound-only WPF: twelve effects plus personal duration styles, no network/process/protocol selectors, conspicuous state, old scopes migrated read-only, hidden enums retained/refused, Win32 failures and Clipboard. No fabricated native success; real arming is tested by --driver-ui.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

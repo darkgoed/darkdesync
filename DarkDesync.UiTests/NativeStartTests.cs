@@ -109,8 +109,9 @@ internal static partial class Program
                 Require(engine.CurrentFilter == "outbound" && vm.SelectedProcess == null, "Literal outbound without a target");
                 Require(!engine.IsEffectActive && engine.ActiveDiagnosticMode == DiagnosticMode.None, "START only arms, never triggers effect");
             }
-            Require(controls.OfType<ComboBox>().Count() == 2 && vm.Processes.Count == 0, "No network/protocol/target discovery or selectors");
+            Require(controls.OfType<ComboBox>().Count() == 3 && vm.Processes.Count == 0, "Only effect/style/hotkey; no network/protocol/target discovery or selectors");
             Require(vm.DiagnosticCycleDurationMs == 200 && state.Text == "PARADO / PAUSADO", "Initial stopped state; ranking does not set 250ms");
+            VerifyExperienceUi(window, vm, store, engine);
             foreach (var mode in ModeCatalog.OutboundChoices.Values.Where(m => m != DiagnosticMode.PacketSizeAwareShaping))
             {
                 Select(mode); enabled.IsChecked = true; Pump(); ClickStart(); Armed();

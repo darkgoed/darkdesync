@@ -13,6 +13,12 @@ O filtro é literalmente `outbound`: TODOS os aplicativos do Windows, sem PID ou
 
 A avaliação pessoal “250 ms” só ordena favoritos: nunca redefine duração padrão ou salva.
 
+### Estilos e pílulas de avaliação pessoal
+
+O catálogo central `EffectExperienceCatalog` guarda observações subjetivas por efeito e duração exata, não métricas objetivas. A 800 ms: Dual Token Bucket e Outbound Freeze = Agressivo/vermelho; Flow-Aware e Bandwidth = Equilibrado/âmbar. Freeze a 250 ms = Legítimo/verde; a 800 ms exibe “injogável nos testes pessoais”, sem bloquear seleção. Os oito novos não foram testados pelo usuário: cinza “Não testado”, em qualquer estilo. Outros tempos não recebem classificação inventada. Pílulas aparecem no dropdown e no efeito selecionado, com texto e contraste de pelo menos 4,5:1.
+
+Estilo Legítimo define exatamente 250 ms; Agressivo define 800 ms; Equilibrado mantém o tempo atual e permite ajuste (não há valor fixo fornecido, nem 500 ms inventado). Personalizado mantém edição manual. Editar tempo de um preset fixo muda explicitamente para Personalizado; não troca o efeito. Alterar estilo/tempo cancela pulso atual, mas nunca inicia captura/efeito. Padrão continua Personalizado/200 ms. Salvar/Carregar/Padrões recuperam estilo/tempo/avaliações sem salvar automaticamente. Arquivo legado sem estilo conserva seus ms como Personalizado; um arquivo editado externamente com estilo fixo e tempo contraditório conserva ms e usa Personalizado. Preset de tempo não atribui avaliação ao efeito nem garante benefício em jogo.
+
 | Efeito selecionável | Algoritmo |
 | --- | --- |
 | 1º Dual Token Bucket | Caminho anterior: média 8 KiB/s E pico 32 KiB/s, débito na liberação. |
@@ -60,6 +66,8 @@ Driver real: dispatch `driver_tests=true legacy_global_tests=true` SOMENTE em VM
     dotnet run --project DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release -- --driver-ui
 
 Auditoria, riscos, escopo inspecionado/não inspecionado, evidências e rollback: [issue #21](audit/OUTBOUND_EIGHT_EFFECTS_20261102.md). Auditorias anteriores em audit/ são históricas, não especificação da UI atual.
+
+Complemento de estilos/avaliações solicitado durante a execução: [adendo](audit/EFFECT_EXPERIENCE_20261102.md). A .7 entregou os oito schedulers; o complemento é publicado na próxima versão disponível, sem reescrever a .7 ou a .6.
 
 Releases: https://github.com/darkgoed/darkdesync/releases/latest (autenticação necessária). Pacote único win-x64, SOURCE_COMMIT e SHA256; .6 permanece rollback. O pacote publicado vem do run verde do SHA final de main.
 
