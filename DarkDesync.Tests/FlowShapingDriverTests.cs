@@ -10,26 +10,36 @@ namespace DarkDesync.Tests;
 [Collection("WinDivert controlled driver")]
 public sealed class FlowShapingDriverTests(ITestOutputHelper output)
 {
-    [GlobalDriverTheory]
+    [DriverTheory]
     [InlineData(true)]
     [Trait("Category", "Driver")]
     public async Task OwnTwoUdpFlows_SparseFlowIsNotBehindBusyFlow_PerFlowFifo_RealDriver(bool consent)
     {
         Assert.True(consent);
+        using var engine = DiagnosticModesTests.Engine();
+        uint pid = (uint)Environment.ProcessId;
+        engine.ObserveTarget(pid);
         using var busyRx = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         using var sparseRx = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         using var busyTx = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         using var sparseTx = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         busyTx.Connect((IPEndPoint)busyRx.Client.LocalEndPoint!);
         sparseTx.Connect((IPEndPoint)sparseRx.Client.LocalEndPoint!);
-        using var engine = DiagnosticModesTests.Engine();
-        engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
-        Assert.True(engine.BeginLegacyGlobalContinuous(DiagnosticMode.None));
+        int busyPort = ((IPEndPoint)busyTx.Client.LocalEndPoint!).Port;
+        int sparsePort = ((IPEndPoint)sparseTx.Client.LocalEndPoint!).Port;
+        engine.StartArmed(FilterMode.Custom, pid, 0, $"outbound and udp and (udp.SrcPort == {busyPort} or udp.SrcPort == {sparsePort})");
+        Assert.True(engine.IsCaptureRequested);
         try
         {
             // Warm up the own sockets before measuring the 200ms production pulse.
             await busyTx.SendAsync(new byte[1], 1);
             await busyRx.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            await sparseTx.SendAsync(new byte[1], 1);
+            await sparseRx.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            var ready = Stopwatch.StartNew();
+            while ((!engine.IsRunning || engine.ScopeStatus.UdpScoped < 2) && ready.Elapsed < TimeSpan.FromSeconds(3)) await Task.Delay(10);
+            Assert.True(engine.IsRunning && engine.ScopeStatus.UdpScoped >= 2);
+            await Task.Delay(30);
             Assert.True(engine.TriggerArmedEffect(DiagnosticMode.FlowAwareShaping, 200));
             var clock = Stopwatch.StartNew();
             var busyTimes = new List<double>();

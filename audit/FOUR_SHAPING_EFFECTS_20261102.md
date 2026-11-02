@@ -21,4 +21,10 @@ Escopo: branch `fix/four-shaping-effects-20261102`, base `f0bc0867cbe50e58f2a845
 - Driver real isolado: pulsos 200 ms, UDP FIFO e perfil temporal com limites largos, TCP exato em blocos próprios abaixo do burst; sparse flow separado de busy flow. Casos de driver nunca são executados neste host Linux. Tráfego gerado somente loopback próprio no Windows Actions.
 - PR CI e `workflow_dispatch driver_tests=true legacy_global_tests=true` no SHA final; só então merge. CI de main e despacho driver no merge SHA. Artifact x64 exclusivamente do run main verde, executável/DLL/SYS e `SOURCE_COMMIT.txt`, SHA256 e TRX anexados à nova Latest. Release anterior preservada.
 
+## Correção do desenho do ensaio real
+
+A rodada inicial de perfil GLOBAL foi bloqueada: o registro mostrou pacote externo de 8107 bytes IP cancelando Rate-Step por fail-open (`queued=15`); outro pulso Dual teve interferência de tráfego agregado. Esse comportamento é o fallback conservador documentado, não uma prova de pacing dos sockets de teste. O ensaio quantitativo foi corrigido para captura real estrita de PID + FLOW/tabelas de proprietário e filtro adicional dos próprios sockets. Não usa mocks, não desabilita o fail-open e mantém asserções de tempo/pacing. GLOBAL literal outbound/START/hotkey/flush/STOP continua coberto separadamente para os seis modos, no mesmo despacho com consentimento explícito. O teste de fairness também isola os próprios fluxos por escopo estrito. Cinco novos casos reais estritos verificam Bandwidth e os quatro novos modos em PID filho, mantendo outro PID intacto.
+
+O teste sintético de restart também foi corrigido: o helper de modelagem substituía seu sender de observação por um sender sem coleta, portanto a última asserção não observava o pacote enviado. Nenhuma alteração nos caminhos aprovados foi necessária.
+
 Revisão básica focada não encontrou motivo para ampliar escopo ou alterar os caminhos aprovados. Qualquer falha funcional/segurança nos gates impede merge/release até correção. Sem Roblox Player, vantagem em jogos, compatibilidade ou bypass de anticheat.

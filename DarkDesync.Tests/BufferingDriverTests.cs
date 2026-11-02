@@ -10,7 +10,7 @@ namespace DarkDesync.Tests;
 [Collection("WinDivert controlled driver")]
 public sealed class BufferingDriverTests(ITestOutputHelper output)
 {
-    [GlobalDriverTheory]
+    [DriverTheory]
     [Trait("Category", "Driver")]
     [InlineData(DiagnosticMode.OutboundFreeze)]
     [InlineData(DiagnosticMode.HoldAndDrainShaping)]
@@ -20,6 +20,9 @@ public sealed class BufferingDriverTests(ITestOutputHelper output)
     [InlineData(DiagnosticMode.FlowAwareShaping)]
     public async Task OwnUdp_MeasuresReleaseProfile_AndOwnTcp_DeliversExactStream(DiagnosticMode mode)
     {
+        using var engine = DiagnosticModesTests.Engine();
+        uint pid = (uint)Environment.ProcessId;
+        engine.ObserveTarget(pid); // Observe BEFORE our first UDP FLOW event.
         using var udpRx = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         using var udpTx = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         udpTx.Connect((IPEndPoint)udpRx.Client.LocalEndPoint!);
@@ -32,22 +35,30 @@ public sealed class BufferingDriverTests(ITestOutputHelper output)
             await tcpTx.ConnectAsync((IPEndPoint)listener.LocalEndpoint);
             using var tcpRx = await accept;
             tcpRx.NoDelay = true;
-            using var engine = DiagnosticModesTests.Engine();
-            engine.UpdateFilter(FilterMode.LegacyGlobalOutbound);
-            Assert.True(engine.BeginLegacyGlobalContinuous(DiagnosticMode.None));
+            int udpSource = ((IPEndPoint)udpTx.Client.LocalEndPoint!).Port;
+            int udpDestination = ((IPEndPoint)udpRx.Client.LocalEndPoint!).Port;
+            int tcpSource = ((IPEndPoint)tcpTx.Client.LocalEndPoint!).Port;
+            int tcpDestination = ((IPEndPoint)listener.LocalEndpoint).Port;
+            string ownTraffic = $"outbound and ((udp and udp.SrcPort == {udpSource} and udp.DstPort == {udpDestination}) or (tcp and tcp.SrcPort == {tcpSource} and tcp.DstPort == {tcpDestination}))";
+            Assert.True(engine.StartArmed(FilterMode.Custom, pid, 0, ownTraffic));
             try
             {
-                Assert.Equal("outbound", engine.CurrentFilter);
                 await udpTx.SendAsync(new byte[] { 255 }, 1);
                 Assert.Equal(new byte[] { 255 }, (await udpRx.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
+                await Until(() => engine.IsRunning && engine.ScopeStatus.UdpScoped > 0);
+                // The bandwidth experiment excludes runner HTTPS/control traffic by
+                // proven PID/tuples AND this own-socket custom filter. GLOBAL lifecycle
+                // and literal outbound remain tested separately by MinimalEffectsDriverTests.
+                await Task.Delay(30);
+                Assert.Contains($"udp.SrcPort == {udpSource}", engine.CurrentFilter);
                 Assert.Equal(0, engine.PacketsThrottled);
                 long held = engine.UdpPacketsHeld;
                 var clock = Stopwatch.StartNew();
                 Assert.True(engine.TriggerArmedEffect(mode, 200));
-                // Start after the first open slot; identical 900-byte IP payload load for every mode.
+                // Identical own 900-byte UDP payload load for every mode.
                 await Task.Delay(20);
                 var receivedAt = new List<double>();
-                var receive = Task.Run(async () =>
+                async Task ReceiveAll()
                 {
                     for (int id = 0; id < 16; id++)
                     {
@@ -57,7 +68,8 @@ public sealed class BufferingDriverTests(ITestOutputHelper output)
                         Assert.Equal(id, packet.Buffer[0]);
                         Assert.All(packet.Buffer.Skip(1), b => Assert.Equal((byte)id, b));
                     }
-                });
+                }
+                var receive = ReceiveAll();
                 for (byte id = 0; id < 16; id++)
                     await udpTx.SendAsync(Enumerable.Repeat(id, 900).ToArray(), 900);
                 await receive;
