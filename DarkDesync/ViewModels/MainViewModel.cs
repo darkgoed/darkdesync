@@ -334,6 +334,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 _unavailableSavedMode = null;
                 OnPropertyChanged(nameof(SelectedOutboundEffect));
                 OnPropertyChanged(nameof(EffectSupportText));
+                RefreshEffectRating();
                 CancelCurrentPulse();
                 ExperimentalOptIn = false;
                 GlobalPacketSizeConsent = false;
@@ -384,11 +385,54 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     };
 
     // One pulse duration shared by the twelve visible effects.
+    public IReadOnlyList<string> PulseStyleOptions { get; } = EffectExperienceCatalog.Styles.Keys.ToArray();
+    private string _selectedPulseStyle = EffectExperienceCatalog.StyleName(PulseStyle.Custom);
+    public string SelectedPulseStyle
+    {
+        get => _selectedPulseStyle;
+        set
+        {
+            if (!EffectExperienceCatalog.Styles.TryGetValue(value ?? "", out var style) || !SetProperty(ref _selectedPulseStyle, value!)) return;
+            CancelCurrentPulse();
+            if (EffectExperienceCatalog.FixedDuration(style) is int duration) DiagnosticCycleDurationMs = duration;
+            OnPropertyChanged(nameof(PulseStyleHelpText));
+        }
+    }
+    public string PulseStyleHelpText => EffectExperienceCatalog.Styles[_selectedPulseStyle] switch
+    {
+        PulseStyle.Legitimate => "Preset Legítimo: 250 ms. Editar ms manualmente passa a Personalizado; não troca o efeito.",
+        PulseStyle.Aggressive => "Preset Agressivo: 800 ms. Editar ms manualmente passa a Personalizado; não troca o efeito.",
+        PulseStyle.Balanced => "Equilibrado: duração ajustável, sem valor fixo fornecido. O tempo atual é mantido.",
+        _ => "Personalizado: duração ajustável. Presets só definem tempo; não classificam o efeito automaticamente."
+    };
+    private EffectRating CurrentEffectRating => _unavailableSavedMode != null
+        ? EffectExperienceCatalog.Rating(_unavailableSavedMode.Value, DiagnosticCycleDurationMs)
+        : EffectExperienceCatalog.Rating(ModeCatalog.Parse(_selectedDiagnosticModeText), DiagnosticCycleDurationMs);
+    public string EffectRatingText => CurrentEffectRating.Label;
+    public string EffectRatingBackground => CurrentEffectRating.Background;
+    public string EffectRatingForeground => CurrentEffectRating.Foreground;
+    public string EffectRatingNote => $"Avaliação pessoal · {DiagnosticCycleDurationMs} ms. {CurrentEffectRating.Note}";
+    private void RefreshEffectRating()
+    {
+        OnPropertyChanged(nameof(EffectRatingText)); OnPropertyChanged(nameof(EffectRatingBackground));
+        OnPropertyChanged(nameof(EffectRatingForeground)); OnPropertyChanged(nameof(EffectRatingNote));
+    }
     private int _diagnosticCycleDurationMs = 200;
     public int DiagnosticCycleDurationMs
     {
         get => _diagnosticCycleDurationMs;
-        set => SetProperty(ref _diagnosticCycleDurationMs, Math.Clamp(value, 0, 800));
+        set
+        {
+            int duration = Math.Clamp(value, 0, 800);
+            if (!SetProperty(ref _diagnosticCycleDurationMs, duration)) return;
+            CancelCurrentPulse();
+            if (EffectExperienceCatalog.FixedDuration(EffectExperienceCatalog.Styles[_selectedPulseStyle]) is int fixedMs && duration != fixedMs)
+            {
+                _selectedPulseStyle = EffectExperienceCatalog.StyleName(PulseStyle.Custom);
+                OnPropertyChanged(nameof(SelectedPulseStyle)); OnPropertyChanged(nameof(PulseStyleHelpText));
+            }
+            RefreshEffectRating();
+        }
     }
 
     private int _burstLossPercentage = 50;
@@ -1041,6 +1085,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 Hotkey = SelectedHotkeyName, OnlyTargetForeground = OnlyTargetForeground,
                 FilterMode = GetFilterMode(), CustomFilter = CustomFilterText,
                 DiagnosticDurationMs = DiagnosticCycleDurationMs, GlobalDelayMs = GlobalDelayMs,
+                PulseStyle = EffectExperienceCatalog.Styles[_selectedPulseStyle],
                 BurstLossPercentage = BurstLossPercentage,
                 AsymmetricInboundPercentage = AsymmetricInboundLossPercentage,
                 AsymmetricOutboundPercentage = AsymmetricOutboundLossPercentage,
@@ -1066,6 +1111,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ThrottleTimeframeMs = s.RetentionMs; ThrottleChance = s.Chance; ThrottleReleaseDelayMs = s.SpacingMs;
         ThrottleJitterMs = s.JitterMs; SelectedHotkeyName = s.Hotkey; OnlyTargetForeground = s.OnlyTargetForeground;
         DiagnosticCycleDurationMs = s.DiagnosticDurationMs;
+        _selectedPulseStyle = EffectExperienceCatalog.StyleName(s.PulseStyle);
+        OnPropertyChanged(nameof(SelectedPulseStyle)); OnPropertyChanged(nameof(PulseStyleHelpText));
         GlobalDelayMs = s.GlobalDelayMs;
         BurstLossPercentage = s.BurstLossPercentage;
         AsymmetricInboundLossPercentage = s.AsymmetricInboundPercentage;
@@ -1088,6 +1135,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(SelectedOutboundEffect));
             OnPropertyChanged(nameof(EffectSupportText));
             OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
+            RefreshEffectRating();
         }
         else SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);
         CustomFilterText = s.CustomFilter;
