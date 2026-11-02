@@ -16,6 +16,58 @@ public sealed class ScopedPulseDriverTests(ITestOutputHelper output)
     [InlineData(DiagnosticMode.PacketSizeAwareShaping)]
     [InlineData(DiagnosticMode.AsymmetricDuplexShaping)]
     [InlineData(DiagnosticMode.ControlledPacketReordering)]
+    public async Task RealViewModel_GlobalToStrict_StartWaits_FlowAutoStarts_PulseStop(DiagnosticMode mode)
+    {
+        using var peer = await UdpDriverIntegrationTests.Peer.Start();
+        using var client = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        client.Connect(IPAddress.Loopback, peer.Port);
+        ConfigurationBehaviorTests.WithVm((vm, e, _, _) =>
+        {
+            void Refresh() => typeof(DarkDesync.ViewModels.MainViewModel).GetMethod("RefreshNetworkDiagnostics",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(vm, null);
+            vm.SelectedFilterModeText = vm.FilterModeOptions[4];
+            vm.SelectedProcess = new DarkDesync.Models.ProcessInfo { ProcessId = peer.Pid };
+            vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode);
+            Assert.Equal(vm.FilterModeOptions[2], vm.SelectedFilterModeText);
+            Assert.True(e.IsObservingUdp); Assert.False(e.IsCaptureRequested);
+            if (mode == DiagnosticMode.ControlledPacketReordering)
+            {
+                vm.ToggleEngineCommand.Execute(null);
+                Assert.False(e.IsCaptureRequested); Assert.Contains("Opt-in", vm.StartStatusText);
+                vm.ExperimentalOptIn = true;
+            }
+            vm.ToggleEngineCommand.Execute(null);
+            Assert.True(e.IsCaptureRequested); Assert.False(e.IsRunning);
+            Assert.Equal("AGUARDANDO", vm.StatusText); Assert.Equal("STOP", vm.EngineToggleText);
+            vm.TriggerCycleCommand.Execute(null); Assert.False(e.IsEffectActive);
+            client.Send(new byte[] { 90 }, 1);
+            Assert.Equal(90, client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult().Buffer[0]);
+            UdpDriverIntegrationTests.WaitUntil(() => e.IsRunning && e.ScopeStatus.UdpScoped > 0).GetAwaiter().GetResult();
+            Refresh();
+            Assert.True(vm.IsEngineRunning); Assert.Contains("ARMADA", vm.StartStatusText);
+            Assert.Contains("udp.SrcPort == " + peer.Port, e.CurrentFilter);
+            Assert.Contains("not impostor", e.CurrentFilter);
+            Assert.Equal(0, e.PacketsThrottled);
+            vm.CycleProfileEnabled = false; vm.TriggerCycleCommand.Execute(null);
+            Assert.False(e.IsEffectActive); Assert.Contains("Habilitado", vm.StartStatusText);
+            vm.CycleProfileEnabled = true;
+            vm.TriggerCycleCommand.Execute(null); Assert.True(e.IsEffectActive);
+            client.Send(new byte[900], 900);
+            client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+            UdpDriverIntegrationTests.WaitUntil(() => !e.IsEffectActive).GetAwaiter().GetResult();
+            Assert.True(e.PacketsThrottled > 0); Assert.Equal(0, e.PacketsDropped);
+            vm.ToggleEngineCommand.Execute(null);
+            Assert.False(e.IsCaptureRequested); Assert.False(e.IsRunning); Assert.Equal("START", vm.EngineToggleText);
+        });
+        output.WriteLine($"{mode}: actual VM START from GLOBAL migrated UI to verified PID, native FLOW -> NETWORK, disabled effect, pulse, STOP verified on own child loopback.");
+    }
+
+    [DriverTheory, Trait("Category", "Driver")]
+    [InlineData(DiagnosticMode.InboundBandwidthShaping)]
+    [InlineData(DiagnosticMode.CorrelatedInboundJitter)]
+    [InlineData(DiagnosticMode.PacketSizeAwareShaping)]
+    [InlineData(DiagnosticMode.AsymmetricDuplexShaping)]
+    [InlineData(DiagnosticMode.ControlledPacketReordering)]
     public async Task ChildPid_LoopbackOnly_DirectionsScheduleIsolationExpiryStop(DiagnosticMode mode)
     {
         using var peer = await UdpDriverIntegrationTests.Peer.Start();
