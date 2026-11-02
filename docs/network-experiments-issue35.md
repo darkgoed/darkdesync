@@ -7,6 +7,14 @@ reintroduced. The new button opens a separate modal laboratory only while STOPPE
 No experiment feeds the pulse engine, requires a game PID, injects into a process,
 or claims a game exploit. Never run global pulse tests on a shared workstation.
 
+During the full legacy driver gate, GapBasedReordering failed with all 12 frames
+drained FIFO at ~901 ms and zero reordered pairs. The release loop used ThreadPool
+continuations, which could miss the entire 800 ms pulse. Release now has a dedicated
+LongRunning worker and a cancellable 4 ms wait (like native capture already did),
+without changing scheduling algorithms or exposing any rejected mode. The driver
+test also asserts dedicated worker creation. This is a root fix, not a retry or a
+weakened assertion; STOP still cancels and joins before disposing its token.
+
 ## Matrix (capability, not an invented result)
 
 | Mechanism | Type when successful | Dependencies / actual test | Limitation and risk |

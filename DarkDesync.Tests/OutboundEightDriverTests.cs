@@ -37,6 +37,8 @@ public sealed class OutboundEightDriverTests(ITestOutputHelper output)
             await sender.SendAsync(Payload(240), 512);
             Assert.Equal(Convert.ToBase64String(Payload(240)), await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5)));
             await UdpDriverIntegrationTests.WaitUntil(() => engine.IsRunning && engine.ScopeStatus.UdpScoped > 0);
+            Assert.True(engine.WorkerSnapshot.Release!.CreationOptions.HasFlag(TaskCreationOptions.LongRunning),
+                "Release must have its own worker, not a ThreadPool continuation that can miss a complete pulse");
             Assert.Equal(0, engine.PacketsThrottled); Assert.Equal(0, engine.IntentionalBurstDrops);
             int count = mode == DiagnosticMode.GilbertElliottBurstLoss ? 100 : 12;
             var received = new List<byte>(); var times = new List<double>();
