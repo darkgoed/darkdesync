@@ -60,6 +60,8 @@ WinDivert não permite trocar filtro nativamente no mesmo handle: a publicação
 
 ## Verificação e download
 
+Auditoria curta desta entrega: [variantes FIFO e matriz de segurança](audit/BUFFERING_VARIANTS_20261102.md). TRX e evidência final do commit publicado acompanham a release.
+
 GitHub Actions “Windows validation” compila, executa regressões e smoke WPF, e publica UMA pasta `DarkDesync-win-x64`. Driver real é opt-in em `workflow_dispatch` com `driver_tests=true`; só gera sockets TCP/UDP loopback próprios e falha sem driver. A suíte cobre os seis efeitos visíveis, APIs legadas e isolamento entre PIDs, TCP:443 inicial, UDP posterior promovido automaticamente, troca de filtro com tráfego, restart sem perder ledger, fechamento de UDP mantendo TCP/PID e encerramento do PID. Entrada é coberta sinteticamente: loopback WinDivert é reportado como saída. Em PowerShell elevado:
 
     $env:DARKDESYNC_DRIVER_TESTS='1'
