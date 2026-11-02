@@ -19,5 +19,10 @@ public enum DiagnosticMode
 
     /// <summary>4. Holds outgoing packets for a configurable time per packet, while START is active.</summary>
     LatencyDelay = 4,
-    PacketDrop = 5
+    PacketDrop = 5,
+
+    // Append only: persisted legacy numeric values must retain their meaning.
+    MicroFreeze = 6,
+    SmoothDelay = 7,
+    SoftJitter = 8
 }

@@ -21,7 +21,7 @@ public sealed record AppSettings
     public bool OnlyTargetForeground { get; init; } = true;
     public FilterMode FilterMode { get; init; } = FilterMode.Outbound;
     public string CustomFilter { get; init; } = "outbound";
-    public int DiagnosticDurationMs { get; init; } = 150;
+    public int DiagnosticDurationMs { get; init; } = 200;
     public int GlobalDelayMs { get; init; } = 150;
     public int BurstLossPercentage { get; init; } = 50;
     public int AsymmetricInboundPercentage { get; init; } = 25;

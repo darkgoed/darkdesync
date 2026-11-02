@@ -58,7 +58,7 @@ public sealed class ConfigurationBehaviorTests
         Assert.False(engine.IsRunning); Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState);
     });
     [Fact]
-    public void JitterOnlyCycleRequiresStart_AndProfileToggleReturnsToArmed() => WithVm((vm, engine, controller, dir) =>
+    public void HiddenThrottleCannotActivateDisabledProfile_AndToggleReturnsToArmed() => WithVm((vm, engine, controller, dir) =>
     {
         vm.CycleProfileEnabled = false; vm.ThrottleEnabled = true;
         try
@@ -68,7 +68,7 @@ public sealed class ConfigurationBehaviorTests
             Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState);
             ArmedCaptureTests.ModelArm(engine, global: false);
             vm.TriggerCycleCommand.Execute(null);
-            Assert.Equal(DesyncStateMachine.State.Active, controller.CurrentState); Assert.False(engine.CycleDropEnabled);
+            Assert.Equal(DesyncStateMachine.State.Armed, controller.CurrentState); Assert.False(engine.CycleDropEnabled);
             vm.SelectedThrottleMode = vm.ThrottleModeOptions[1];
             Assert.Equal(DesyncStateMachine.State.Armed, controller.CurrentState); Assert.True(engine.ThrottleContinuous);
             vm.CycleProfileEnabled = true; vm.TriggerCycleCommand.Execute(null);
@@ -89,6 +89,55 @@ public sealed class ConfigurationBehaviorTests
         Assert.False(engine.IsRunning); Assert.False(vm.IsEngineRunning); Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState);
         Assert.True(engine.ThrottleContinuous); Assert.Equal("loopback", vm.CustomFilterText);
     });
+    [Theory]
+    [InlineData(DiagnosticMode.None)]
+    [InlineData(DiagnosticMode.BurstLoss)]
+    [InlineData(DiagnosticMode.AsymmetricLoss)]
+    [InlineData(DiagnosticMode.LatencyDelay)]
+    [InlineData(DiagnosticMode.PacketDrop)]
+    public void LegacyEffectMigration_IsExplicit_DoesNotRewriteSource_AndCannotDrop(DiagnosticMode oldMode) => WithVm((vm, engine, controller, dir) =>
+    {
+        var store = new SettingsStore(Path.Combine(dir, "settings.json"));
+        store.Save(new AppSettings { DiagnosticMode = oldMode, DiagnosticDurationMs = 175,
+            FilterMode = FilterMode.LegacyGlobalOutbound, DropPercentage = 100,
+            ThrottleEnabled = true, ThrottleMode = ThrottleMode.Continuous, JitterMs = 71 });
+        byte[] original = File.ReadAllBytes(store.FilePath);
+        vm.LoadSettings();
+        Assert.Equal(original, File.ReadAllBytes(store.FilePath));
+        Assert.Equal(oldMode, store.Load().DiagnosticMode);
+        Assert.Contains("Efeito antigo", vm.SettingsStatus);
+        Assert.Equal("Outbound Freeze", vm.SelectedDiagnosticModeText);
+        Assert.Equal(175, vm.DiagnosticCycleDurationMs); Assert.Equal(71, vm.ThrottleJitterMs);
+        Assert.False(engine.IsCaptureRequested);
+        ArmedCaptureTests.ModelArm(engine);
+        vm.TriggerCycleCommand.Execute(null);
+        Assert.Equal(DiagnosticMode.OutboundFreeze, engine.ActiveDiagnosticMode);
+        Assert.True(DiagnosticModesTests.Capture(engine));
+        engine.Stop();
+        Assert.Equal(0, engine.PacketsDropped); Assert.Equal(1, engine.PacketsPassedThrough);
+        vm.SaveSettingsCommand.Execute(null);
+        Assert.Equal(DiagnosticMode.OutboundFreeze, store.Load().DiagnosticMode);
+        Assert.Equal(71, store.Load().JitterMs);
+    });
+
+    [Theory]
+    [InlineData("Outbound Freeze", DiagnosticMode.OutboundFreeze)]
+    [InlineData("Micro-Freeze", DiagnosticMode.MicroFreeze)]
+    [InlineData("Smooth Delay", DiagnosticMode.SmoothDelay)]
+    [InlineData("Soft Jitter", DiagnosticMode.SoftJitter)]
+    public void NewModesRoundtrip_AndUse200msWithoutHiddenLegacyLoss(string text, DiagnosticMode mode) => WithVm((vm, engine, controller, dir) =>
+    {
+        Assert.Equal(200, vm.DiagnosticCycleDurationMs);
+        vm.SelectedDiagnosticModeText = text;
+        vm.SaveSettingsCommand.Execute(null); vm.ResetSettingsCommand.Execute(null); vm.LoadSettings();
+        Assert.Equal(text, vm.SelectedDiagnosticModeText); Assert.Equal(200, vm.DiagnosticCycleDurationMs);
+        ArmedCaptureTests.ModelArm(engine);
+        vm.TriggerCycleCommand.Execute(null);
+        Assert.Equal(mode, engine.ActiveDiagnosticMode);
+        Assert.True(DiagnosticModesTests.Capture(engine));
+        engine.Stop(); Assert.Equal(0, engine.PacketsDropped);
+    });
+
     [Fact]
     public void StoreClampsInvalidValuesAndRejectsInvalidEnumStrings()
     {

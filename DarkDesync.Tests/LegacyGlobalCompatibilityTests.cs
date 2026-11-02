@@ -167,7 +167,7 @@ public sealed class LegacyGlobalCompatibilityTests
     {
         Assert.Equal(FilterMode.LegacyGlobalOutbound, new AppSettings { FilterMode = FilterMode.LegacyGlobalOutbound }.Validate().FilterMode);
         Assert.Equal(FilterMode.Outbound, new AppSettings().FilterMode);
-        Assert.Equal(150, new AppSettings().DiagnosticDurationMs);
+        Assert.Equal(200, new AppSettings().DiagnosticDurationMs);
     }
 
     [Fact]
