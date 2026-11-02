@@ -17,6 +17,18 @@ using DarkDesync.ViewModels;
 
 internal static partial class Program
 {
+    private static Application CreateTestApplication()
+    {
+        // Load the actual shared theme without App.StartupUri automatically
+        // creating a second window with the default (non-test) settings store.
+        var app = new Application();
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("pack://application:,,,/DarkDesync;component/Themes/DarkTheme.xaml", UriKind.Absolute)
+        });
+        return app;
+    }
+
     // Driver-free smoke also exercises the real Button's OnClick/command binding,
     // not ICommand.Execute. Native suite below additionally uses UIA client lookup.
     private static void InvokeButton(Button button)
@@ -36,7 +48,7 @@ internal static partial class Program
         Process? child = null;
         try
         {
-            var app = new App(); app.InitializeComponent(); app.StartupUri = null;
+            var app = CreateTestApplication();
             window = new MainWindow(new SettingsStore(Path.Combine(dir, "settings.json")));
             app.MainWindow = window;
             window.Show(); Pump();

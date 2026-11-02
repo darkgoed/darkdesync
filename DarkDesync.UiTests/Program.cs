@@ -23,7 +23,7 @@ internal static partial class Program
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
         try
         {
-            var app = new App(); app.InitializeComponent(); app.StartupUri = null;
+            var app = CreateTestApplication();
             var window = new MainWindow(new SettingsStore(Path.Combine(temporary, "settings.json")));
             var vm = (MainViewModel)window.DataContext;
             window.Show(); Pump();
