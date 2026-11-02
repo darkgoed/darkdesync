@@ -73,7 +73,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _selectedFilterModeText, value))
             {
-
+                GlobalPacketSizeConsent = false;
+                OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
                 OnPropertyChanged(nameof(IsLegacyGlobalSelected));
                 OnPropertyChanged(nameof(IsStrictCaptureMode));
                 OnPropertyChanged(nameof(IsGlobalDropVisible));
@@ -127,7 +128,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
                 AddLog($"[PROCESSO] Alvo: {value?.ProcessName ?? "Nenhum"} (PID: {value?.ProcessId ?? 0})");
 
-                if (!SelectVerifiedScopeForScopedProfile()) ApplyFilterMode();
+                ApplyFilterMode();
             }
         }
     }
@@ -316,6 +317,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 CancelCurrentPulse();
                 ExperimentalOptIn = false;
+                GlobalPacketSizeConsent = false;
+                OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
                 OnPropertyChanged(nameof(IsExperimentalSelected));
                 if (scopeChanges)
                 {
@@ -323,7 +326,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     _packetEngine?.ConfigureScopedProfile(ModeCatalog.Parse(value));
                 }
                 _startError = null;
-                SelectVerifiedScopeForScopedProfile();
                 RefreshNetworkDiagnostics();
                 OnPropertyChanged(nameof(IsBurstLossVisible));
                 OnPropertyChanged(nameof(IsAsymmetricLossVisible));
@@ -521,14 +523,19 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _startStatusText = "Selecione o processo e pressione START. Captura parada.";
     public string StartStatusText { get => _startStatusText; private set => SetProperty(ref _startStatusText, value); }
 
-    // UI-only migration. No settings write and no payload capture on selection.
-    private bool SelectVerifiedScopeForScopedProfile()
+    private string? CompatibilityError => PacketEngine.ProfileCompatibilityError(ModeCatalog.Parse(SelectedDiagnosticModeText), GetFilterMode());
+    public bool IsGlobalPacketSizeSelected => IsLegacyGlobalSelected && ModeCatalog.Parse(SelectedDiagnosticModeText) == DiagnosticMode.PacketSizeAwareShaping;
+    private bool _globalPacketSizeConsent;
+    public bool GlobalPacketSizeConsent
     {
-        if (!PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText)) ||
-            !IsLegacyGlobalSelected || SelectedProcess is not { ProcessId: > 0 }) return false;
-        SelectedFilterModeText = FilterModeOptions[2];
-        AddLog("[ESCOPO] Perfil estrito: filtro UI alterado para Conexões verificadas da aplicação; configuração não salva. Pressione START.");
-        return true;
+        get => _globalPacketSizeConsent;
+        set
+        {
+            if (!SetProperty(ref _globalPacketSizeConsent, value)) return;
+            CancelCurrentPulse();
+            if (_packetEngine != null) _packetEngine.GlobalPacketSizeConsent = value;
+            RefreshNetworkDiagnostics();
+        }
     }
 
     private void RefreshNetworkDiagnostics()
@@ -543,9 +550,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var s = _packetEngine.ScopeStatus;
         FilterStatusText = IsLegacyGlobalSelected ? "Outbound global" : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}";
         bool scoped = PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText));
-        StartStatusText = _startError ??
-            (scoped && (SelectedProcess is not { ProcessId: > 0 } || IsLegacyGlobalSelected)
-                ? "Selecione a aplicação-alvo. Este perfil exige PID estrito; o filtro mudará para Conexões verificadas da aplicação. Depois pressione START."
+        StartStatusText = _startError ?? CompatibilityError ??
+            (IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent
+                ? "Consentimento GLOBAL obrigatório: UDP IPv4 de TODOS os aplicativos será afetado. TCP passa sem efeito. Marque o consentimento ou selecione Saída do alvo com PID estrito."
+            : scoped && !IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 }
+                ? "Selecione a aplicação-alvo. Este perfil exige PID estrito e conexões verificadas, sem trocar o filtro escolhido. Depois pressione START."
             : IsExperimentalSelected && !ExperimentalOptIn
                 ? "Ative o Opt-in EXPERIMENTAL para reordenar somente UDP loopback próprio. Depois pressione START."
             : !CycleProfileEnabled ? "Efeito desabilitado. Marque Habilitado para permitir o pulso; START somente arma a captura."
@@ -554,7 +563,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             : s.Running ? (_packetEngine.IsEffectActive ? "Pulso ativo. " : "Captura ARMADA, sem efeito. Espaço ou Pulso manual dispara o efeito. ") +
                 (IsLegacyGlobalSelected ? "GLOBAL outbound." : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}. " + (s.UdpScoped == 0 ? "Nenhum UDP incluído; reconecte para observar UDP." : ""))
             : s.ProcessId != 0 ? "Captura parada. Pressione START. " + s.Reason
-            : IsLegacyGlobalSelected ? "GLOBAL outbound parado. START arma sem efeito (quatro favoritos)."
+            : IsLegacyGlobalSelected ? "GLOBAL outbound parado. START arma sem efeito; afeta todos os aplicativos no pulso."
             : "Selecione a aplicação-alvo e pressione START; captura exige PID vivo e conexões verificadas.");
     }
     public string EngineStatusColor => IsEngineRunning ? "#06D6A0" : "#E63946";
@@ -722,8 +731,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         if (startCapture)
         {
             _startError = null;
-            SelectVerifiedScopeForScopedProfile();
-            if ((!IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 }) ||
+            if (CompatibilityError != null || (IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent) ||
+                (!IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 }) ||
                 (IsExperimentalSelected && !ExperimentalOptIn))
             {
                 RefreshNetworkDiagnostics();
@@ -830,7 +839,6 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void ExecuteToggleEngine()
     {
         _startError = null;
-        SelectVerifiedScopeForScopedProfile();
         if (IsLegacyGlobalSelected)
         {
             if (_packetEngine == null) return;
@@ -844,13 +852,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 CancelCurrentPulse();
                 EnsureEngineRunning(startCapture: false);
-                if (PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText)))
+                if (CompatibilityError != null || (IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent))
                 {
-                    AddLog("[BLOQUEADO] Este perfil exige PID estrito; GLOBAL permanece disponível só para os quatro perfis aprovados.");
                     RefreshNetworkDiagnostics();
+                    AddLog("[BLOQUEADO] " + StartStatusText);
                     return;
                 }
-                _packetEngine.ConfigureScopedProfile(DiagnosticMode.None);
+                _packetEngine.ConfigureScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText));
                 _packetEngine.SetDropPercentage(DropPercentage);
                 bool started = _packetEngine.BeginLegacyGlobalContinuous(DiagnosticMode.None);
                 AddLog(started
@@ -919,6 +927,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var s = settings.Validate();
         CancelCurrentPulse();
         ExperimentalOptIn = false;
+        GlobalPacketSizeConsent = false;
         _packetEngine?.Stop();
         IsEngineRunning = false;
         CycleProfileEnabled = s.CycleProfileEnabled;

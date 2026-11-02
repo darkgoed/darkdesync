@@ -150,7 +150,7 @@ internal static class Program
                 vm.SelectedFilterModeText = vm.FilterModeOptions[4];
                 mode.SelectedItem = effect; Pump();
                 vm.ToggleEngineCommand.Execute(null); Pump();
-                Require(startStatus.IsVisible && startStatus.Text == vm.StartStatusText && startStatus.Text.Contains("PID estrito"),
+                Require(startStatus.IsVisible && startStatus.Text == vm.StartStatusText && startStatus.Text.Contains(effect == "Packet Size-Aware Shaping" ? "Consentimento GLOBAL" : "INCOMPATÍVEL"),
                     "Always-visible START preflight, outside closed diagnostic expander: " + effect);
                 Require(vm.EngineToggleText == "START" && !engine.IsCaptureRequested, "Missing PID never opens GLOBAL: " + effect);
             }
@@ -162,7 +162,8 @@ internal static class Program
             var startButton = controls.OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.ToggleEngineCommand));
             var own = new DarkDesync.Models.ProcessInfo { ProcessId = (uint)Environment.ProcessId, ProcessName = "UI-owned PID" };
             vm.Processes.Add(own); targetPicker.SelectedItem = own; Pump();
-            Require(vm.SelectedProcess == own && vm.SelectedFilterModeText == vm.FilterModeOptions[2], "PID binding migrates GLOBAL to verified UI scope");
+            Require(vm.SelectedProcess == own && vm.SelectedFilterModeText == vm.FilterModeOptions[4], "PID binding preserves GLOBAL selection");
+            vm.SelectedFilterModeText = vm.FilterModeOptions[0]; Pump();
             // Earlier settings roundtrip intentionally persisted Habilitado=false.
             enabled.IsChecked = true; Pump();
             Require(vm.CycleProfileEnabled, "Enable the profile before the pending START scenario");
@@ -173,11 +174,19 @@ internal static class Program
             startButton.Command.Execute(null); Pump();
             Require(Equals(startButton.Content, "STOP") && vm.StatusText == "AGUARDANDO" && startStatus.Text.Contains("Aguardando conexões"),
                 $"START button binding reflects pending capture, not active: button={startButton.Content}, status={vm.StatusText}, detail={startStatus.Text}");
+            Require(vm.SelectedFilterModeText == vm.FilterModeOptions[0], "START keeps PID Outbound selection");
             enabled.IsChecked = false; Pump();
             Require(!vm.CycleProfileEnabled && startStatus.Text.Contains("Habilitado"), "Enable checkbox binding gives explicit instruction");
             enabled.IsChecked = true; Pump();
             startButton.Command.Execute(null); Pump();
             Require(Equals(startButton.Content, "START") && !engine.IsCaptureRequested, "STOP cancels pending START through UI command");
+            vm.SelectedFilterModeText = vm.FilterModeOptions[4];
+            mode.SelectedItem = "Packet Size-Aware Shaping"; Pump();
+            var globalConsent = controls.OfType<CheckBox>().Single(c => c.Content is string text && text.StartsWith("Consinto: GLOBAL"));
+            Require(globalConsent.IsVisible && !vm.GlobalPacketSizeConsent, "Separate visible GLOBAL consent defaults off");
+            globalConsent.IsChecked = true; Pump(); Require(vm.GlobalPacketSizeConsent, "GLOBAL consent binding");
+            vm.SaveSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
+            Require(vm.IsGlobalPacketSizeSelected && !vm.GlobalPacketSizeConsent && !engine.IsCaptureRequested, "GLOBAL size settings preserve selection but never consent or capture");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
             Console.WriteLine("PASS: nine choices, minimal controls, experimental opt-in, 200ms default, WPF bindings, settings, START/Space/STOP lifecycle; no physical keyboard/game claim.");

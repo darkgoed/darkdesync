@@ -21,6 +21,8 @@ public sealed class ScopedPulseTests
         var e = DiagnosticModesTests.Engine();
         Assert.True(e.ConfigureScopedProfile(mode));
         ArmedCaptureTests.ModelArm(e, global: false);
+        // Model an explicitly bidirectional PID filter for directional fixtures.
+        ArmedCaptureTests.Set(e, "_filterMode", FilterMode.AllTraffic);
         DiagnosticModesTests.Authorize(e);
         e.UdpFlowsOverride = () => [DiagnosticModesTests.Endpoint() with { Protocol = 17 }];
         e.UdpBindingOverride = _ => true;

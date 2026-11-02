@@ -470,16 +470,15 @@ public sealed class PacketEngine : IDisposable
                 _filterBuilder.GetFilter(_filterMode, null, _customFilter);
             if (IsScopedProfile(_armedScopeProfile))
             {
-                // Profile directions override outbound default, NEVER tuple/PID scope.
+                // Intersect explicit user direction; never silently widen Outbound.
                 string direction = _armedScopeProfile is DiagnosticMode.InboundBandwidthShaping or DiagnosticMode.CorrelatedInboundJitter
                     ? "(inbound or loopback)" : _armedScopeProfile == DiagnosticMode.AsymmetricDuplexShaping ? "true" : "outbound";
                 string protocol = _armedScopeProfile is DiagnosticMode.PacketSizeAwareShaping or DiagnosticMode.ControlledPacketReordering ? "udp" : "(tcp or udp)";
-                restriction = $"not impostor and {direction} and {protocol}" +
+                restriction = $"({restriction}) and not impostor and {direction} and {protocol}" +
                     (_armedScopeProfile == DiagnosticMode.ControlledPacketReordering ? " and loopback" : "");
-                if (_filterMode == FilterMode.Custom) restriction += $" and ({_filterBuilder.GetFilter(_filterMode, null, _customFilter)})";
             }
             string filter = !_captureRequested || restriction == "false" ? "false" :
-                FilterBuilder.BuildScopedFilter(eligible, restriction, IsScopedProfile(_armedScopeProfile));
+                FilterBuilder.BuildScopedFilter(eligible, restriction, _armedScopeProfile is DiagnosticMode.InboundBandwidthShaping or DiagnosticMode.CorrelatedInboundJitter or DiagnosticMode.AsymmetricDuplexShaping);
             if (filter != _currentFilter || (_captureRequested && filter != "false" && !_isRunning))
                 ReplaceNetworkScope(filter, eligible);
             if (!_captureRequested && _armedCapture) StopCore(); // Failed NETWORK open must revoke arming too.
@@ -517,6 +516,8 @@ public sealed class PacketEngine : IDisposable
         lock (_lifecycleLock)
         {
             if (_disposed || !Enum.IsDefined(mode) || _filterMode != FilterMode.LegacyGlobalOutbound ||
+                ProfileCompatibilityError(_armedScopeProfile, _filterMode) != null ||
+                (_armedScopeProfile == DiagnosticMode.PacketSizeAwareShaping && !GlobalPacketSizeConsent) ||
                 _isRunning || _legacyPulseActive || _captureRequested ||
                 _stateMachine.Current != DesyncStateMachine.State.Idle)
                 return false;
@@ -633,6 +634,30 @@ public sealed class PacketEngine : IDisposable
     public long ScopedInboundPacketsHeld => Interlocked.Read(ref _scopedInboundHeld);
     public long ScopedOutboundPacketsHeld => Interlocked.Read(ref _scopedOutboundHeld);
     public static bool IsScopedProfile(DiagnosticMode mode) => ScopedPulseScheduler.Handles(mode);
+    public static string? ProfileCompatibilityError(DiagnosticMode mode, FilterMode filter)
+    {
+        if (filter == FilterMode.LegacyGlobalOutbound && IsScopedProfile(mode) && mode != DiagnosticMode.PacketSizeAwareShaping)
+            return mode == DiagnosticMode.ControlledPacketReordering
+                ? "INCOMPATÍVEL: reordering exige PID estrito, UDP loopback próprio e Opt-in EXPERIMENTAL; GLOBAL não é permitido. Selecione Saída do alvo e a aplicação."
+                : "INCOMPATÍVEL: este efeito exige entrada ou duas direções e PID estrito. Selecione Entrada + saída do alvo ou Conexões verificadas da aplicação. Outbound não captura entrada.";
+        if (filter == FilterMode.Outbound && mode is DiagnosticMode.InboundBandwidthShaping or DiagnosticMode.CorrelatedInboundJitter or DiagnosticMode.AsymmetricDuplexShaping)
+            return "INCOMPATÍVEL: Saída do alvo captura somente saída. Este efeito exige entrada ou duas direções. Selecione Entrada + saída do alvo ou Conexões verificadas da aplicação; o filtro não será trocado automaticamente.";
+        return null;
+    }
+    private bool _globalPacketSizeConsent;
+    public bool GlobalPacketSizeConsent
+    {
+        get { lock (_packetLock) return _globalPacketSizeConsent; }
+        set
+        {
+            lock (_packetLock)
+            {
+                _globalPacketSizeConsent = value;
+                if (!value && _filterMode == FilterMode.LegacyGlobalOutbound && _activeDiagnosticMode == DiagnosticMode.PacketSizeAwareShaping)
+                    CancelArmedEffectLocked();
+            }
+        }
+    }
     public bool ConfigureScopedProfile(DiagnosticMode mode)
     {
         lock (_lifecycleLock)
@@ -675,6 +700,13 @@ public sealed class PacketEngine : IDisposable
         lock (_lifecycleLock)
         {
             if (_disposed || _captureRequested || mode == FilterMode.LegacyGlobalOutbound) return false;
+            if (ProfileCompatibilityError(_armedScopeProfile, mode) is { } incompatibility)
+            {
+                _lastCaptureError = incompatibility;
+                Volatile.Write(ref _scopeStatus, ScopeStatus with { Reason = incompatibility });
+                ErrorOccurred?.Invoke(incompatibility);
+                return false;
+            }
             // Resolve identity first: target changes may stop the preceding epoch.
             ObserveTargetCore(processId);
             PrepareArmedCapture();
@@ -693,7 +725,9 @@ public sealed class PacketEngine : IDisposable
             ExpireArmedEffectLocked();
             if (_stateMachine.Current != DesyncStateMachine.State.Armed) return false;
             if (_filterMode == FilterMode.LegacyGlobalOutbound && mode == DiagnosticMode.None) return false;
-            if (IsScopedProfile(mode) && (_filterMode == FilterMode.LegacyGlobalOutbound || _armedScopeProfile != mode ||
+            if (ProfileCompatibilityError(mode, _filterMode) != null) return false;
+            if (_filterMode == FilterMode.LegacyGlobalOutbound && mode == DiagnosticMode.PacketSizeAwareShaping && !GlobalPacketSizeConsent) return false;
+            if (IsScopedProfile(mode) && (_armedScopeProfile != mode ||
                 (mode == DiagnosticMode.ControlledPacketReordering && !ExperimentalReorderingConsent))) return false;
             if (IsScopedProfile(_armedScopeProfile) && mode != _armedScopeProfile) return false;
             long generation = ++_effectGeneration;
@@ -1413,8 +1447,18 @@ public sealed class PacketEngine : IDisposable
     private bool ProcessScopedPacket(IntPtr buffer, uint length, WinDivertNative.Address native, bool active)
     {
         // Same-handle reinjection cannot be recaptured; refuse other injectors too.
-        if (native.Impostor || _filterMode == FilterMode.LegacyGlobalOutbound ||
-            !TryScopedDirection(buffer, length, native, out bool outbound, out var flow))
+        bool globalSize = _filterMode == FilterMode.LegacyGlobalOutbound &&
+            _armedScopeProfile == DiagnosticMode.PacketSizeAwareShaping && GlobalPacketSizeConsent;
+        // A valid TCP packet is a disjoint protocol, never in this UDP scheduler.
+        // Do not cancel a GLOBAL UDP pulse just because another app uses TCP.
+        if (globalSize && length >= 20 && Marshal.ReadByte(buffer, 0) >> 4 == 4 &&
+            Marshal.ReadByte(buffer, 9) == 6 && TryExtractIpAndPorts(buffer, length, out _, out _, out _, out _))
+        { RecordSend(SendPacket(buffer, length, native)); return false; }
+        bool outbound; PulseShaper.Flow flow;
+        bool identified = globalSize
+            ? TryGlobalSizeFlow(buffer, length, native, out outbound, out flow)
+            : TryScopedDirection(buffer, length, native, out outbound, out flow);
+        if (native.Impostor || (_filterMode == FilterMode.LegacyGlobalOutbound && !globalSize) || !identified)
         {
             // Loss of proof must not allow a newer packet to overtake a retained one.
             CancelArmedEffectLocked(); RecordSend(SendPacket(buffer, length, native)); return false;
@@ -1459,6 +1503,18 @@ public sealed class PacketEngine : IDisposable
         }
         else if (!IsAuthorizedTraffic(buffer, length, native)) return false;
         flow = new(protocol, (outbound ? "out:" : "in:") + source, sp, destination!.ToString(), dp);
+        return true;
+    }
+
+    private static bool TryGlobalSizeFlow(IntPtr buffer, uint length, WinDivertNative.Address native,
+        out bool outbound, out PulseShaper.Flow flow)
+    {
+        outbound = native.Outbound; flow = default;
+        // Explicit GLOBAL consent replaces PID proof, not packet validation. TCP,
+        // IPv6, fragments and other injectors fail open; no replay or intentional loss.
+        if (!outbound || native.Impostor || !TryExtractIpAndPorts(buffer, length, out var source, out var destination, out var sp, out var dp) ||
+            Marshal.ReadByte(buffer, 0) >> 4 != 4 || Marshal.ReadByte(buffer, 9) != 17 || sp == 0 || dp == 0) return false;
+        flow = new(17, "out:" + source, sp, destination!.ToString(), dp);
         return true;
     }
 
