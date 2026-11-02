@@ -21,7 +21,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (!SetProperty(ref _cycleProfileEnabled, value)) return;
             if (_packetEngine != null) _packetEngine.CycleDropEnabled = value;
-            if (!value && !IsLegacyGlobalSelected) _controller.CancelCycle();
+            if (!value) CancelCurrentPulse();
         }
     }
     private string _selectedThrottleMode = "No atalho / ciclo";
@@ -32,7 +32,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (!ThrottleModeOptions.Contains(value) || !SetProperty(ref _selectedThrottleMode, value)) return;
             if (_packetEngine != null) _packetEngine.ThrottleContinuous = value == ThrottleModeOptions[1];
-            if (!IsLegacyGlobalSelected) _controller.CancelCycle();
+            CancelCurrentPulse();
         }
     }
     private string _settingsStatus = "Salve para reutilizar ao abrir. O alvo não é salvo.";
@@ -193,7 +193,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _throttleEnabled, value))
             {
-                if (!value && !IsLegacyGlobalSelected) _controller.CancelCycle();
+                if (!value) CancelCurrentPulse();
                 if (_packetEngine != null)
                 {
                     _packetEngine.ThrottleEnabled = value;
@@ -301,13 +301,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (!DiagnosticModeOptions.Contains(value)) return;
             if (SetProperty(ref _selectedDiagnosticModeText, value))
             {
-                _controller.CancelCycle();
-                if (IsLegacyGlobalSelected && _packetEngine?.IsRunning == true)
-                {
-                    _packetEngine.Stop();
-                    AddLog("[GLOBAL] Efeito alterado: STOP automático. Confira o perfil e pressione START.");
-                    RefreshNetworkDiagnostics();
-                }
+                CancelCurrentPulse();
+                RefreshNetworkDiagnostics();
                 OnPropertyChanged(nameof(IsBurstLossVisible));
                 OnPropertyChanged(nameof(IsAsymmetricLossVisible));
                 OnPropertyChanged(nameof(IsDiagnosticModeSelected));
@@ -319,7 +314,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
     public bool IsBurstLossVisible => _selectedDiagnosticModeText == "Burst Loss";
     public bool IsAsymmetricLossVisible => _selectedDiagnosticModeText == "Asymmetric Loss";
-    public bool IsDiagnosticModeSelected => !IsLegacyGlobalSelected && _selectedDiagnosticModeText != "Desativado";
+    public bool IsDiagnosticModeSelected => IsLegacyGlobalSelected || _selectedDiagnosticModeText != "Desativado";
     public bool IsLegacyModeSelected => !IsDiagnosticModeSelected && !IsLegacyGlobalSelected;
     public bool IsGlobalDelayVisible => _selectedDiagnosticModeText == "Atraso (ms)";
     private int _globalDelayMs = 150;
@@ -425,6 +420,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string StatusText => State switch
     {
         DesyncStateMachine.State.Idle => "IDLE",
+        DesyncStateMachine.State.Armed => "ARMADO · SEM EFEITO",
         DesyncStateMachine.State.Active => "DESYNC ATIVO",
         DesyncStateMachine.State.Restoring => "RESTAURANDO",
         _ => "DESCONHECIDO"
@@ -491,7 +487,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get
         {
             var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
-            if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? "START ativo até STOP" : "STOP / parado")}\nEfeito: {SelectedDiagnosticModeText}" +
+            if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? (_packetEngine!.IsEffectActive ? "PULSO ATIVO" : "ARMADO / sem efeito") : "STOP / parado")}\nEfeito selecionado: {SelectedDiagnosticModeText} • pulso: {DiagnosticCycleDurationMs} ms" +
                 (IsGlobalDelayVisible ? $" • retenção por pacote: {GlobalDelayMs} ms" : "") +
                 $"\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
             return $"PID {s.ProcessId} • FLOW {(s.Observing ? "armado" : "inativo")} • NETWORK {(s.Running ? "ativo" : s.Requested ? "aguardando tupla" : "parado")}\nTCP: observados {s.TcpObserved}, escopados {s.TcpScoped} | UDP: sockets {s.UdpBindings}, fluxos observados {s.UdpObserved}, elegíveis {s.UdpEligible}, escopados {s.UdpScoped}\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
@@ -600,7 +596,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         });
 
         // Wire Controller events
-        _controller.StateChanged += s => _dispatcher.InvokeAsync(() => State = s);
+        _controller.StateChanged += _ => _dispatcher.InvokeAsync(() => State = _controller.CurrentState);
         // Countdown remains inside the controller; the controls-only UI does not
         // subscribe or dispatch per-tick visual updates.
         _controller.CycleFinished += record => _dispatcher.InvokeAsync(() =>
@@ -625,8 +621,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         // Wire Hotkey
         _hotkeyService.HotkeyPressed += () =>
         {
+            // Snapshot acceptance at the physical edge, not after a queued START.
+            // No packet locks or native work on the low-level hook thread.
+            if (_packetEngine is not { IsCaptureRequested: true } ||
+                _packetEngine.StateMachine.Current != DesyncStateMachine.State.Armed) return;
+            long epoch = _packetEngine.ArmedGeneration;
             _dispatcher.InvokeAsync(() =>
             {
+                if (_packetEngine.ArmedGeneration != epoch) return;
                 AddLog("[HOTKEY] Tecla acionada via teclado");
                 ExecuteTriggerCycle("atalho global");
             });
@@ -657,7 +659,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         // Populate initial process list
         RefreshProcessList();
 
-        // Capture is opt-in: only the capture button, cycle button or hotkey may start it.
+        // Only START opens capture; hotkey/manual pulse requires an armed engine.
 
         AddLog("[SISTEMA] DarkDesync inicializado com sucesso.");
     }
@@ -682,7 +684,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             {
                 var mode = GetFilterMode();
                 uint pid = SelectedProcess?.ProcessId ?? 0;
-                bool ok = _packetEngine.Start(mode, pid, DropPercentage, CustomFilterText);
+                bool ok = _packetEngine.StartArmed(mode, pid, DropPercentage, CustomFilterText);
                 if (ok)
                 {
                     IsEngineRunning = true;
@@ -712,7 +714,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var mode = GetFilterMode();
         uint pid = SelectedProcess?.ProcessId ?? 0;
 
-        _controller.CancelCycle();
+        CancelCurrentPulse();
+        _packetEngine?.Stop(); // Target/filter changes require a new START.
         _packetEngine?.UpdateFilter(mode, pid, CustomFilterText); // Arms observation on selection, before joining a service.
         RefreshNetworkDiagnostics();
     }
@@ -721,30 +724,12 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void ExecuteTriggerCycle(string source)
     {
-        if (IsLegacyGlobalSelected)
+        if (_packetEngine is not { IsCaptureRequested: true, IsRunning: true })
         {
-            AddLog("[GLOBAL] Para o Outbound legado, selecione o efeito e use START/STOP. Não há pulso obrigatório.");
+            AddLog("[AVISO] Pressione START antes do Espaço/pulso manual. O atalho não inicia captura.");
             return;
         }
-        if (!CycleProfileEnabled && !(ThrottleEnabled && SelectedThrottleMode == ThrottleModeOptions[0]))
-        {
-            AddLog("[AVISO] Nenhum efeito de ciclo habilitado. Use Iniciar Captura para o modo contínuo.");
-            return;
-        }
-        if (State != DesyncStateMachine.State.Idle)
-        {
-            AddLog("[AVISO] Ciclo já em execução. Acionamento ignorado.");
-            return;
-        }
-
-        if (IsDiagnosticModeSelected && CycleProfileEnabled && DiagnosticCycleDurationMs == 0)
-        {
-            AddLog("[CICLO] Duração 0 ms: nenhum pulso ou captura iniciado.");
-            return;
-        }
-        EnsureEngineRunning(startCapture: !IsLegacyGlobalSelected);
-
-        if (!IsLegacyGlobalSelected && _packetEngine != null && !_packetEngine.IsRunning) return;
+        if (!CycleProfileEnabled && (IsLegacyGlobalSelected || !ThrottleEnabled)) return;
 
         var diagMode = (CycleProfileEnabled ? _selectedDiagnosticModeText : "Desativado") switch
         {
@@ -757,13 +742,20 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         };
 
         AddLog($"[ACIONAMENTO] {source}; escopo: {(IsLegacyGlobalSelected ? "GLOBAL" : "PID estrito")}; efeito: {diagMode}; duração de pulso configurada: {DiagnosticCycleDurationMs} ms");
-        bool cycleStarted = _controller.TriggerCycle(diagMode, DiagnosticCycleDurationMs);
+        int duration = IsLegacyModeSelected ? CustomDurationMs : DiagnosticCycleDurationMs;
+        bool cycleStarted = _packetEngine.TriggerArmedEffect(diagMode, duration);
         if (!cycleStarted) AddLog("[AVISO] Não foi possível iniciar ciclo.");
+    }
+
+    private void CancelCurrentPulse()
+    {
+        if (_packetEngine?.IsCaptureRequested == true) _packetEngine.CancelArmedEffect();
+        else _controller.CancelCycle();
     }
 
     private void ExecuteCancelCycle()
     {
-        _controller.CancelCycle();
+        CancelCurrentPulse();
         if (_packetEngine is { IsRunning: false }) _packetEngine.Stop(); // Also stop pending UDP observation.
         AddLog("[SISTEMA] Ciclo cancelado pelo usuário.");
     }
@@ -776,26 +768,17 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (_packetEngine.IsRunning || _packetEngine.IsCaptureRequested)
             {
                 _packetEngine.Stop();
-                _controller.CancelCycle();
+                CancelCurrentPulse();
                 AddLog("[GLOBAL] STOP: captura encerrada e pacotes retidos liberados.");
             }
             else
             {
-                _controller.CancelCycle();
+                CancelCurrentPulse();
                 EnsureEngineRunning(startCapture: false);
                 _packetEngine.SetDropPercentage(DropPercentage);
-                var effect = _selectedDiagnosticModeText switch
-                {
-                    "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-                    "Burst Loss" => DiagnosticMode.BurstLoss,
-                    "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
-                    "Atraso (ms)" => DiagnosticMode.LatencyDelay,
-                    "Drop (%)" => DiagnosticMode.PacketDrop,
-                    _ => DiagnosticMode.None
-                };
-                bool started = _packetEngine.BeginLegacyGlobalContinuous(effect);
+                bool started = _packetEngine.BeginLegacyGlobalContinuous(DiagnosticMode.None);
                 AddLog(started
-                    ? $"[GLOBAL] START: filtro outbound, efeito {effect}, ativo continuamente até STOP."
+                    ? "[GLOBAL] START: filtro outbound ARMADO, SEM efeito. Espaço dispara um pulso; STOP fecha a captura."
                     : "[GLOBAL] Não foi possível iniciar. Verifique driver/administrador e diagnóstico.");
             }
             RefreshNetworkDiagnostics();
@@ -803,7 +786,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
         if (_packetEngine?.IsCaptureRequested ?? IsEngineRunning)
         {
-            _controller.CancelCycle();
+            CancelCurrentPulse();
             _packetEngine?.Stop();
             IsEngineRunning = false;
             FilterStatusText = "Filtro: Desativado";
@@ -862,7 +845,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private void ApplySettings(AppSettings settings)
     {
         var s = settings.Validate();
-        _controller.CancelCycle();
+        CancelCurrentPulse();
         _packetEngine?.Stop();
         IsEngineRunning = false;
         CycleProfileEnabled = s.CycleProfileEnabled;

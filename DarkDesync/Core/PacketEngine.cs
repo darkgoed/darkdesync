@@ -491,8 +491,7 @@ public sealed class PacketEngine : IDisposable
     }
 
     /// <summary>
-    /// Runs selected global outbound effect until STOP. Selecting the filter alone never opens the driver.
-    /// Unlike the legacy timed pulse, this is a user-controlled continuous capture.
+    /// Arms global outbound capture until STOP. The selection never applies an effect at START.
     /// </summary>
     public bool BeginLegacyGlobalContinuous(DiagnosticMode mode)
     {
@@ -503,10 +502,9 @@ public sealed class PacketEngine : IDisposable
                 _stateMachine.Current != DesyncStateMachine.State.Idle)
                 return false;
 
-            if (!_stateMachine.TryActivate()) return false;
             _legacyPulseActive = true;
             _captureRequested = true;
-            _activeDiagnosticMode = mode;
+            PrepareArmedCapture();
             _lastCaptureError = null;
             Interlocked.Exchange(ref _safetyStopRequested, 0);
             // A permanent user-controlled lease. Only STOP, close, mode change, or failure ends it.
@@ -582,6 +580,99 @@ public sealed class PacketEngine : IDisposable
     }
 
 
+    // Callbacks take only _packetLock, never _lifecycleLock (STOP joins workers).
+    // Generations prevent a queued old timer restoring a new START or pulse.
+    private bool _armedCapture;
+    private long _armedGeneration;
+    public long ArmedGeneration => Interlocked.Read(ref _armedGeneration);
+    private long _effectGeneration;
+    private long _effectDeadline;
+    private Timer? _effectTimer;
+    public bool IsEffectActive
+    {
+        get { lock (_packetLock) return _armedCapture && _stateMachine.Current == DesyncStateMachine.State.Active && _timestamp() < _effectDeadline; }
+    }
+
+    private void PrepareArmedCapture()
+    {
+        lock (_packetLock)
+        {
+            CancelArmedEffectLocked();
+            Interlocked.Increment(ref _armedGeneration);
+            _armedCapture = true;
+            _stateMachine.SetArmed();
+        }
+    }
+
+    public bool StartArmed(FilterMode mode, uint processId, int dropPercentage, string? customFilter = null)
+    {
+        lock (_lifecycleLock)
+        {
+            if (_disposed || _captureRequested || mode == FilterMode.LegacyGlobalOutbound) return false;
+            // Resolve identity first: target changes may stop the preceding epoch.
+            ObserveTargetCore(processId);
+            PrepareArmedCapture();
+            bool started = StartCore(mode, processId, dropPercentage, customFilter);
+            if (!_captureRequested) { lock (_packetLock) { _armedCapture = false; _stateMachine.ForceIdle(); } }
+            return started;
+        }
+    }
+
+    public bool TriggerArmedEffect(DiagnosticMode mode, int durationMs)
+    {
+        lock (_packetLock)
+        {
+            if (_disposed || !_armedCapture || !_captureRequested || !_isRunning || _stopping ||
+                !Enum.IsDefined(mode) || durationMs <= 0) return false;
+            ExpireArmedEffectLocked();
+            if (_stateMachine.Current != DesyncStateMachine.State.Armed) return false;
+            if (_filterMode == FilterMode.LegacyGlobalOutbound && mode == DiagnosticMode.None) return false;
+            long generation = ++_effectGeneration;
+            int duration = Math.Clamp(durationMs, 0, mode == DiagnosticMode.None && _filterMode != FilterMode.LegacyGlobalOutbound ? 10000 : 800);
+            _effectDeadline = _timestamp() + (long)duration * Stopwatch.Frequency / 1000;
+            _activeDiagnosticMode = mode;
+            _stateMachine.TryActivateArmed();
+            _effectTimer?.Dispose();
+            _effectTimer = new Timer(_ =>
+            {
+                lock (_packetLock)
+                {
+                    if (!_armedCapture || generation != _effectGeneration) return;
+                    if (_timestamp() < _effectDeadline)
+                    {
+                        int remaining = (int)Math.Max(1, (_effectDeadline - _timestamp()) * 1000 / Stopwatch.Frequency);
+                        _effectTimer?.Change(remaining, Timeout.Infinite);
+                        return;
+                    }
+                    CancelArmedEffectLocked();
+                }
+            }, null, duration, Timeout.Infinite);
+            return true;
+        }
+    }
+
+    public void CancelArmedEffect()
+    {
+        lock (_packetLock) { if (_armedCapture) CancelArmedEffectLocked(); }
+    }
+
+    private void ExpireArmedEffectLocked()
+    {
+        if (_armedCapture && _stateMachine.Current == DesyncStateMachine.State.Active && _timestamp() >= _effectDeadline)
+            CancelArmedEffectLocked();
+    }
+
+    private void CancelArmedEffectLocked()
+    {
+        Interlocked.Increment(ref _armedGeneration); // Also revokes queued hotkeys on profile cancellation.
+        ++_effectGeneration;
+        _effectTimer?.Dispose(); _effectTimer = null;
+        _effectDeadline = 0;
+        _activeDiagnosticMode = DiagnosticMode.None;
+        if (_armedCapture) _stateMachine.SetArmed();
+        FlushThrottleQueueLocked();
+    }
+
     public void EndLegacyGlobalPulse()
     {
         lock (_lifecycleLock)
@@ -593,7 +684,7 @@ public sealed class PacketEngine : IDisposable
 
     private void PublishGlobalStatus() => Volatile.Write(ref _scopeStatus,
         new CaptureScopeStatus(0, false, _legacyPulseActive, _isRunning, 0, 0, 0, 0, 0, 0,
-            _lastCaptureError ?? "GLOBAL — todas as conexões de saída do Windows. START mantém o efeito escolhido até STOP; não identifica Roblox. Freeze retém e libera, não descarta.",
+            _lastCaptureError ?? "GLOBAL — todas as conexões de saída do Windows. START arma sem efeito; Espaço dispara um pulso. Ao terminar, captura permanece armada até STOP; não identifica Roblox.",
             _legacyPulseActive && _isRunning ? "outbound" : "false", "GLOBAL: filtro literal outbound, SEM restrição por PID. START/STOP contínuo."));
 
     // WinDivert has no in-place filter update. Break-before-make: no overlapping
@@ -652,6 +743,9 @@ public sealed class PacketEngine : IDisposable
         _captureRequested = false;
         lock (_packetLock)
         {
+            CancelArmedEffectLocked();
+            _armedCapture = false;
+            Interlocked.Increment(ref _armedGeneration);
             _stopping = true;
             _isRunning = false;
             _isDropActive = false;
@@ -819,7 +913,13 @@ public sealed class PacketEngine : IDisposable
                 return false;
             }
 
+            ExpireArmedEffectLocked();
             bool active = _stateMachine.Current == DesyncStateMachine.State.Active;
+            if (_armedCapture && !active)
+            {
+                RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                return false; // Saved drop/throttle flags cannot apply effects at START.
+            }
             bool legacy = _legacyPulseActive;
             if (legacy && !addr.Outbound)
             {
@@ -1194,7 +1294,8 @@ public sealed class PacketEngine : IDisposable
         }
     }
 
-    private bool IsThrottleEffective => (!_legacyPulseActive || WithinLegacyDeadline) && (((_activeDiagnosticMode == DiagnosticMode.OutboundFreeze ||
+    private bool IsThrottleEffective => (!_armedCapture || (_stateMachine.Current == DesyncStateMachine.State.Active && _timestamp() < _effectDeadline)) &&
+        (!_legacyPulseActive || WithinLegacyDeadline) && (((_activeDiagnosticMode == DiagnosticMode.OutboundFreeze ||
         _activeDiagnosticMode == DiagnosticMode.LatencyDelay) &&
         _stateMachine.Current == DesyncStateMachine.State.Active) || _isThrottleActive ||
         (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active)));
@@ -1203,6 +1304,7 @@ public sealed class PacketEngine : IDisposable
     {
         lock (_packetLock)
         {
+            ExpireArmedEffectLocked();
             if (_throttleQueue.TryPeek(out var oldest))
             {
                 bool effective = IsThrottleEffective;

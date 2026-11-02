@@ -15,6 +15,8 @@ public sealed class DesyncStateMachine
         Active = 1,
         /// <summary>Timer expired. Restoring normal traffic flow.</summary>
         Restoring = 2,
+        /// <summary>Capture open, no packet effects.</summary>
+        Armed = 3,
     }
 
     private int _state = (int)State.Idle;
@@ -24,6 +26,20 @@ public sealed class DesyncStateMachine
 
     /// <summary>Raised when the state changes. Args: (oldState, newState).</summary>
     public event Action<State, State>? StateChanged;
+
+    internal void SetArmed()
+    {
+        var old = (State)Interlocked.Exchange(ref _state, (int)State.Armed);
+        if (old != State.Armed) StateChanged?.Invoke(old, State.Armed);
+    }
+
+    internal bool TryActivateArmed()
+    {
+        if (Interlocked.CompareExchange(ref _state, (int)State.Active, (int)State.Armed) != (int)State.Armed)
+            return false;
+        StateChanged?.Invoke(State.Armed, State.Active);
+        return true;
+    }
 
     /// <summary>
     /// Attempts to transition from Idle to Active.

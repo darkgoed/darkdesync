@@ -142,6 +142,8 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
         Assert.True(engine.BeginLegacyGlobalContinuous(DiagnosticMode.LatencyDelay));
         try
         {
+            Assert.Equal(DiagnosticMode.None, engine.ActiveDiagnosticMode);
+            Assert.True(engine.TriggerArmedEffect(DiagnosticMode.LatencyDelay, 800));
             var started = Stopwatch.StartNew();
             var pending = receiver.ReceiveAsync();
             await sender.SendAsync(new byte[] { 61 }, 1);
@@ -188,15 +190,19 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
         {
             Assert.True(engine.IsRunning);
             Assert.Equal("outbound", engine.CurrentFilter);
-            Assert.Equal(DesyncStateMachine.State.Active, engine.StateMachine.Current);
+            Assert.Equal(DesyncStateMachine.State.Armed, engine.StateMachine.Current);
             // Above the former 800 ms cap: only STOP, close, or a failure should end capture.
             await Task.Delay(1050);
             Assert.True(engine.IsRunning);
+            await sender.SendAsync(new byte[] { 40 }, 1);
+            Assert.Equal(new byte[] { 40 }, (await receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(2))).Buffer);
+            Assert.Equal(0, engine.PacketsDropped); Assert.Equal(0, engine.PacketsThrottled);
+            Assert.True(engine.TriggerArmedEffect(mode, 800));
             var pending = receiver.ReceiveAsync();
             await sender.SendAsync(new byte[] { 41 }, 1);
             await Until(() => mode == DiagnosticMode.OutboundFreeze ?
                 engine.UdpPacketsHeld > 0 : engine.UdpPacketsDropped > 0);
-            Assert.False(pending.IsCompleted, "START must apply the selected effect, not just pass traffic through");
+            Assert.False(pending.IsCompleted, "Only a pulse AFTER START may hold/drop traffic");
             engine.Stop();
             Assert.False(engine.IsRunning);
             Assert.Equal("false", engine.CurrentFilter);
@@ -214,7 +220,7 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
         {
             engine.Stop();
         }
-        output.WriteLine($"GLOBAL {mode}: active after 1050ms, STOP restored normal traffic");
+        output.WriteLine($"GLOBAL {mode}: armed/pass-through after 1050ms, explicit pulse applied effect, STOP restored normal traffic");
     }
 
     [GlobalDriverTheory]
@@ -233,6 +239,7 @@ public sealed class LegacyGlobalDriverTests(ITestOutputHelper output)
         Assert.True(engine.BeginLegacyGlobalContinuous(DiagnosticMode.LatencyDelay));
         try
         {
+            Assert.True(engine.TriggerArmedEffect(DiagnosticMode.LatencyDelay, 800));
             for (byte id = 0; id < 8; id++) await sender.SendAsync(new[] { id }, 1);
             await Until(() => engine.UdpPacketsHeld >= 8);
             var clock = Stopwatch.StartNew();
