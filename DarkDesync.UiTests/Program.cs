@@ -15,7 +15,7 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length == 3 && args[0] == "--uia-click") return RunExternalUiaClick(args);
+        if (args.Length == 5 && args[0] == "--uia-click") return RunExternalUiaClick(args);
         if (args.SequenceEqual(new[] { "--udp-sink" })) return RunUdpSink();
         if ((args.Length == 3 || args.Length == 4) && args[0] == "--udp-peer") return RunUdpPeer(args);
         if (args.SequenceEqual(new[] { "--driver-ui" })) return RunNativeUi();

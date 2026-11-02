@@ -83,7 +83,8 @@ internal static partial class Program
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
             void ClickStart()
             {
-                using var client = StartExternalUiaClick(hwnd);
+                var point = start.PointToScreen(new Point(start.ActualWidth / 2, start.ActualHeight / 2));
+                using var client = StartExternalUiaClick(hwnd, point);
                 Await(client.WaitForExitAsync());
                 string evidence = client.StandardOutput.ReadToEnd(), errors = client.StandardError.ReadToEnd();
                 Require(client.ExitCode == 0 && evidence.Contains("PASS external UIA Invoke"), "External UIA client: " + evidence + errors);

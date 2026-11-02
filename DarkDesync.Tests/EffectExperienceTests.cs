@@ -36,13 +36,13 @@ public sealed class EffectExperienceTests
     public void OnlyTwoPrimaryStyles_ManualRequiresExplicitChoice()
         => ConfigurationBehaviorTests.WithVm((vm, engine, _, dir) =>
         {
-            vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.HeavyTailJitter);
+            vm.SelectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.DualTokenBucket);
             Assert.Equal(200, vm.DiagnosticCycleDurationMs); Assert.Equal("Teste manual", vm.SelectedPulseStyle);
             foreach (var row in new[] { ("Legit", 250), ("Agressivo", 800) })
             {
                 vm.SelectedPulseStyle = row.Item1; Assert.Equal(row.Item2, vm.DiagnosticCycleDurationMs);
-                Assert.Equal(ModeCatalog.Name(DiagnosticMode.HeavyTailJitter), vm.SelectedDiagnosticModeText);
-                Assert.Equal("Não avaliado", vm.EffectRatingText); Assert.False(engine.IsCaptureRequested);
+                Assert.Equal(ModeCatalog.Name(DiagnosticMode.DualTokenBucket), vm.SelectedDiagnosticModeText);
+                Assert.Equal(EffectExperienceCatalog.Rating(DiagnosticMode.DualTokenBucket, row.Item2).Label, vm.EffectRatingText); Assert.False(engine.IsCaptureRequested);
             }
             vm.DiagnosticCycleDurationMs = 317; Assert.Equal(800, vm.DiagnosticCycleDurationMs); Assert.Equal("Agressivo", vm.SelectedPulseStyle);
             vm.IsManualDurationEnabled = true; vm.DiagnosticCycleDurationMs = 317;
