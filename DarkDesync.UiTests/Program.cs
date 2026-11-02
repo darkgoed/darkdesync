@@ -49,6 +49,9 @@ internal static class Program
                 Require(duration.IsVisible, "Diagnostic duration visible inside profile");
 
             }
+            var optIn = controls.OfType<CheckBox>().Single(c => c.Content is string text && text.StartsWith("Opt-in EXPERIMENTAL"));
+            Require(optIn.IsVisible && !vm.ExperimentalOptIn, "Experimental opt-in visible and default off");
+            optIn.IsChecked = true; Pump(); Require(vm.ExperimentalOptIn, "Consent binding");
             vm.BurstLossPercentage = 37; vm.AsymmetricInboundLossPercentage = 12; vm.AsymmetricOutboundLossPercentage = 84;
             vm.SelectedHotkeyName = "F2"; vm.DiagnosticCycleDurationMs = 800;
             vm.SaveSettingsCommand.Execute(null);
@@ -136,6 +139,10 @@ internal static class Program
             Require(!engine.IsRunning && vm.EngineToggleText == "START", "Filter change safely stops GLOBAL");
             vm.SelectedDiagnosticModeText = "Dual Token Bucket"; Pump();
             Require(vm.IsDiagnosticModeSelected && pulseSlider.IsVisible, "Strict effects share the pulse control");
+            ModelRunning();
+            mode.SelectedItem = "Asymmetric Duplex Shaping"; Pump();
+            Require(!engine.IsRunning && vm.EngineToggleText == "START", "New direction scope requires a fresh START");
+            Require(!optIn.IsVisible && !vm.ExperimentalOptIn, "Consent hidden and revoked outside experimental");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
             Console.WriteLine("PASS: nine choices, minimal controls, experimental opt-in, 200ms default, WPF bindings, settings, START/Space/STOP lifecycle; no physical keyboard/game claim.");

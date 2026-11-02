@@ -148,6 +148,25 @@ public sealed class ConfigurationBehaviorTests
         engine.Stop(); Assert.Equal(0, engine.PacketsDropped);
     });
 
+    [Theory]
+    [InlineData(DiagnosticMode.InboundBandwidthShaping)]
+    [InlineData(DiagnosticMode.CorrelatedInboundJitter)]
+    [InlineData(DiagnosticMode.PacketSizeAwareShaping)]
+    [InlineData(DiagnosticMode.AsymmetricDuplexShaping)]
+    [InlineData(DiagnosticMode.ControlledPacketReordering)]
+    public void ScopedChoicesRoundtrip_ConsentNeverPersists_AndNoCaptureOnLoad(DiagnosticMode mode) => WithVm((vm, engine, controller, dir) =>
+    {
+        Assert.Equal(9, vm.DiagnosticModeOptions.Count);
+        vm.SelectedDiagnosticModeText = ModeCatalog.Name(mode); vm.ExperimentalOptIn = true;
+        vm.SaveSettingsCommand.Execute(null);
+        var store = new SettingsStore(Path.Combine(dir, "settings.json"));
+        Assert.Equal(mode, store.Load().DiagnosticMode);
+        Assert.DoesNotContain("OptIn", File.ReadAllText(store.FilePath));
+        vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null);
+        Assert.Equal(ModeCatalog.Name(mode), vm.SelectedDiagnosticModeText); Assert.False(vm.ExperimentalOptIn);
+        Assert.False(engine.IsCaptureRequested); Assert.Equal(200, vm.DiagnosticCycleDurationMs);
+    });
+
     [Fact]
     public void StoreClampsInvalidValuesAndRejectsInvalidEnumStrings()
     {

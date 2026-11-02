@@ -61,6 +61,19 @@ public sealed class ScopedPulseTests
         Assert.Equal(15, s.Drain().Count()); Assert.Equal(0, s.Bytes);
     }
 
+    [Theory]
+    [InlineData(DiagnosticMode.InboundBandwidthShaping, 70)]
+    [InlineData(DiagnosticMode.AsymmetricDuplexShaping, 140)]
+    public void AggregateByteBudget_DoesNotStarveSparseLargeHeadBehindBusyTinyDatagrams(DiagnosticMode mode, int waitMs)
+    {
+        var s = new ScopedPulseScheduler(mode, T(1000));
+        for (byte i = 0; i < 100; i++) s.Enqueue(Packet(i, 64), Flow(), T(1000));
+        s.Enqueue(Packet(200, 1000), Flow(port: 444), T(1000));
+        Assert.True(s.TryDequeue(T(1010), out var small)); Assert.Equal(0, small!.Data[0]);
+        Assert.False(s.TryDequeue(T(1011), out _));
+        Assert.True(s.TryDequeue(T(1000 + waitMs), out var sparse)); Assert.Equal(200, sparse!.Data[0]);
+    }
+
     [Fact]
     public void Jitter_IsEpochCorrelated_Seeded_Bounded_AndFifoDespiteFallingDelay()
     {
@@ -209,6 +222,64 @@ public sealed class ScopedPulseTests
         ShapingEffectsTests.Release(e, System.Diagnostics.Stopwatch.GetTimestamp());
         e.Stop(); Assert.Equal(new byte[] { 0, 1, 3, 2 }, ids); Assert.Equal(1, e.IntentionallyReorderedPairs);
         Assert.Equal(0, e.PacketsDropped);
+    }
+
+    [Theory]
+    [InlineData(DiagnosticMode.InboundBandwidthShaping)]
+    [InlineData(DiagnosticMode.CorrelatedInboundJitter)]
+    [InlineData(DiagnosticMode.AsymmetricDuplexShaping)]
+    public void TcpFixtures_KeepFifoAndOriginalBytesInBothDirections(DiagnosticMode mode)
+    {
+        using var e = Arm(mode, out var ids);
+        long now = T(1000); ArmedCaptureTests.Set(e, "_timestamp", (Func<long>)(() => now));
+        Assert.True(e.TriggerArmedEffect(mode, 200));
+        for (byte i = 0; i < 12; i++) Assert.True(Capture(e, i, protocol: 6));
+        if (mode == DiagnosticMode.AsymmetricDuplexShaping)
+            for (byte i = 12; i < 24; i++) Assert.True(Capture(e, i, outbound: true, protocol: 6));
+        else Assert.False(Capture(e, 99, outbound: true, protocol: 6));
+        now = T(1200); ShapingEffectsTests.Release(e, now);
+        Assert.Equal(Enumerable.Range(0, mode == DiagnosticMode.AsymmetricDuplexShaping ? 24 : 12).Select(i => (byte)i), ids.Where(i => i != 99));
+        Assert.Equal(0, e.PacketsDropped);
+    }
+
+    [Fact]
+    public void RevokingExperimentalConsent_FlushesBeforeNewerDatagrams_AndCannotRearm()
+    {
+        using var e = Arm(DiagnosticMode.ControlledPacketReordering, out var ids);
+        Assert.True(e.TriggerArmedEffect(DiagnosticMode.ControlledPacketReordering, 800));
+        Assert.True(Capture(e, 0, true, nativeLoopback: true)); Assert.True(Capture(e, 1, true, nativeLoopback: true));
+        e.ExperimentalReorderingConsent = false;
+        Assert.False(Capture(e, 2, true, nativeLoopback: true));
+        Assert.Equal(new byte[] { 0, 1, 2 }, ids); Assert.False(e.IsEffectActive);
+        Assert.False(e.TriggerArmedEffect(DiagnosticMode.ControlledPacketReordering, 800));
+    }
+
+    [Theory, MemberData(nameof(Modes))]
+    public async Task TimerWatchdog_FlushesWithoutPacketsOrReleaseWorker(DiagnosticMode mode)
+    {
+        using var e = Arm(mode, out var ids);
+        Assert.True(e.TriggerArmedEffect(mode, 50));
+        bool outbound = mode is DiagnosticMode.PacketSizeAwareShaping or DiagnosticMode.ControlledPacketReordering;
+        Assert.True(Capture(e, 0, outbound, nativeLoopback: mode == DiagnosticMode.ControlledPacketReordering));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (e.IsEffectActive && clock.ElapsedMilliseconds < 3000) await Task.Delay(5);
+        Assert.False(e.IsEffectActive); Assert.Equal(new byte[] { 0 }, ids); Assert.True(e.IsRunning);
+        Assert.Equal(DesyncStateMachine.State.Armed, e.StateMachine.Current);
+    }
+
+    [Theory, MemberData(nameof(Modes))]
+    public async Task ReinjectionFailure_IsReportedAsFailure_NotIntentionalDrop(DiagnosticMode mode)
+    {
+        using var e = Arm(mode, out _);
+        Assert.True(e.TriggerArmedEffect(mode, 800));
+        bool outbound = mode is DiagnosticMode.PacketSizeAwareShaping or DiagnosticMode.ControlledPacketReordering;
+        Assert.True(Capture(e, 0, outbound, nativeLoopback: mode == DiagnosticMode.ControlledPacketReordering));
+        e.SendOverride = (_, _, _) => false;
+        e.CancelArmedEffect();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (e.IsRunning && clock.ElapsedMilliseconds < 3000) await Task.Delay(5);
+        Assert.False(e.IsRunning); Assert.Equal(1, e.PacketsDropped); Assert.Equal(1, e.PacketsFailedToSend);
+        Assert.Equal(0, e.IntentionallyReorderedPairs);
     }
 
     [Theory, MemberData(nameof(Modes))]

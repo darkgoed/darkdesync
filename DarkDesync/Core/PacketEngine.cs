@@ -185,7 +185,7 @@ public sealed class PacketEngine : IDisposable
     public long PacketsPassedThrough => Volatile.Read(ref _packetsPassedThrough);
     public long PacketsThrottled => Volatile.Read(ref _packetsThrottled);
     private long _tcpIntercepted, _udpIntercepted, _tcpDropped, _udpDropped, _tcpHeld, _udpHeld;
-    public string ProtocolCounters => $"TCP: capturados {Volatile.Read(ref _tcpIntercepted)}, descartados {Volatile.Read(ref _tcpDropped)}, retidos {Volatile.Read(ref _tcpHeld)} | UDP: capturados {Volatile.Read(ref _udpIntercepted)}, descartados {Volatile.Read(ref _udpDropped)}, retidos {Volatile.Read(ref _udpHeld)} | pares UDP intencionalmente reordenados (tentativas): {IntentionallyReorderedPairs}";
+    public string ProtocolCounters => $"TCP: capturados {Volatile.Read(ref _tcpIntercepted)}, descartados {Volatile.Read(ref _tcpDropped)}, retidos {Volatile.Read(ref _tcpHeld)} | UDP: capturados {Volatile.Read(ref _udpIntercepted)}, descartados {Volatile.Read(ref _udpDropped)}, retidos {Volatile.Read(ref _udpHeld)} | pares UDP intencionalmente reordenados (tentativas): {IntentionallyReorderedPairs} | falhas de reinjeção: {PacketsFailedToSend}";
     public long UdpPacketsDropped => Volatile.Read(ref _udpDropped);
     public long UdpPacketsHeld => Volatile.Read(ref _udpHeld);
     public bool IsRunning => _isRunning;
@@ -605,6 +605,8 @@ public sealed class PacketEngine : IDisposable
     private DiagnosticMode _armedScopeProfile;
     private long _reorderedPairs;
     public long IntentionallyReorderedPairs => Interlocked.Read(ref _reorderedPairs);
+    private long _reinjectionFailures;
+    public long PacketsFailedToSend => Interlocked.Read(ref _reinjectionFailures);
     // Explicit opt-in is session-only, never loaded from a settings file.
     private bool _experimentalReorderingConsent;
     public bool ExperimentalReorderingConsent
@@ -1652,6 +1654,7 @@ public sealed class PacketEngine : IDisposable
             Interlocked.Increment(ref _packetsPassedThrough);
         else
         {
+            Interlocked.Increment(ref _reinjectionFailures);
             Interlocked.Increment(ref _packetsDropped);
             _logger.LogWarning("Packet reinjection failed; counted as dropped, not delivered.");
             if (_isRunning) RequestSafetyStop("Reinjeção falhou; captura encerrada por segurança.");

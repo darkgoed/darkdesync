@@ -30,7 +30,7 @@ public sealed class ScopedPulseDriverTests(ITestOutputHelper output)
         await UdpDriverIntegrationTests.WaitUntil(() => e.IsRunning && e.ScopeStatus.UdpScoped > 0);
         Assert.Contains("not impostor", e.CurrentFilter);
         Assert.Contains("udp.SrcPort == " + peer.Port, e.CurrentFilter);
-        Assert.DoesNotContain("tcp", e.CurrentFilter);
+        Assert.DoesNotContain("tcp.SrcPort", e.CurrentFilter); // No TCP tuple is eligible; redundant protocol guard may name TCP.
         await client.SendAsync(new byte[] { 98 }, 1);
         Assert.Equal(98, (await client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3))).Buffer[0]);
         Assert.Equal(0, e.PacketsThrottled); // START did not apply anything.

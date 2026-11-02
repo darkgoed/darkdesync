@@ -17,6 +17,7 @@ internal sealed class ScopedPulseScheduler(DiagnosticMode mode, long start, int 
     private readonly long _start = start;
     private readonly double[] _tokens = [0, 0];
     private readonly long[] _updated = [start, start];
+    private readonly int[] _budgetCursor = [0, 0];
     private long _jitterEpoch = start;
     private double _delay = 60;
     private int _cursor;
@@ -59,7 +60,8 @@ internal sealed class ScopedPulseScheduler(DiagnosticMode mode, long start, int 
         if (Count == 0) return false;
         for (int scanned = 0; scanned < _order.Count; scanned++)
         {
-            var lane = _lanes[_order[_cursor]];
+            int laneIndex = _cursor;
+            var lane = _lanes[_order[laneIndex]];
             _cursor = (_cursor + 1) % _order.Count;
             if (lane.Packets.Count == 0) continue;
             var head = lane.Packets[0];
@@ -86,7 +88,10 @@ internal sealed class ScopedPulseScheduler(DiagnosticMode mode, long start, int 
             else
             {
                 // Release metadata must retain the native address; logical direction is in flow key.
-                int direction = _order[(_cursor + _order.Count - 1) % _order.Count].Source.StartsWith("in:", StringComparison.Ordinal) ? 0 : 1;
+                int direction = Direction(_order[laneIndex]);
+                // Reserve the next turn per direction until its head fits. Otherwise
+                // a busy stream of tiny datagrams can starve a sparse large packet.
+                if (BudgetTurn(direction) != laneIndex) continue;
                 long monotonic = Math.Max(now, _updated[direction]);
                 int rate = mode == DiagnosticMode.InboundBandwidthShaping ? 16384 : direction == 0 ? 8192 : 32768;
                 _tokens[direction] = Math.Min(1536, _tokens[direction] + (monotonic - _updated[direction]) * (double)rate / Stopwatch.Frequency);
@@ -95,12 +100,24 @@ internal sealed class ScopedPulseScheduler(DiagnosticMode mode, long start, int 
                 if (mode == DiagnosticMode.AsymmetricDuplexShaping && direction == 1 && (now - _start) % T(60) >= T(20)) continue;
                 if (_tokens[direction] < head.Length) continue;
                 _tokens[direction] -= head.Length;
+                _budgetCursor[direction] = (laneIndex + 1) % _order.Count;
             }
             packet = lane.Packets[index]; lane.Packets.RemoveAt(index);
             Count--; Bytes -= packet.Length;
             return true;
         }
         return false;
+    }
+
+    private static int Direction(PulseShaper.Flow flow) => flow.Source.StartsWith("in:", StringComparison.Ordinal) ? 0 : 1;
+    private int BudgetTurn(int direction)
+    {
+        for (int i = 0; i < _order.Count; i++)
+        {
+            int index = (_budgetCursor[direction] + i) % _order.Count;
+            if (Direction(_order[index]) == direction && _lanes[_order[index]].Packets.Count > 0) return index;
+        }
+        return -1;
     }
 
     internal IEnumerable<ThrottledPacket> Drain()
