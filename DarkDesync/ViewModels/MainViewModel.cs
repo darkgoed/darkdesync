@@ -289,7 +289,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
 
     // Diagnostic mode selection
-    private string _selectedDiagnosticModeText = "Outbound Freeze";
+    private string _selectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.OutboundFreeze);
     public List<string> DiagnosticModeOptions { get; } = ModeCatalog.Choices.Keys.ToList();
     public bool IsExperimentalSelected => ModeCatalog.Parse(_selectedDiagnosticModeText) == DiagnosticMode.ControlledPacketReordering;
     private bool _experimentalOptIn;
@@ -310,7 +310,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get => _selectedDiagnosticModeText;
         set
         {
-            if (!DiagnosticModeOptions.Contains(value)) return;
+            if (!ModeCatalog.TryParse(value, out var selectedMode)) return;
+            value = ModeCatalog.Name(selectedMode);
             bool scopeChanges = PacketEngine.IsScopedProfile(ModeCatalog.Parse(value)) ||
                 PacketEngine.IsScopedProfile(ModeCatalog.Parse(_selectedDiagnosticModeText));
             if (SetProperty(ref _selectedDiagnosticModeText, value))
@@ -549,15 +550,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(StatusText));
         var s = _packetEngine.ScopeStatus;
         FilterStatusText = IsLegacyGlobalSelected ? "Outbound global" : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}";
-        bool scoped = PacketEngine.IsScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText));
         StartStatusText = _startError ?? CompatibilityError ??
             (IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent
                 ? "Consentimento GLOBAL obrigatório: UDP IPv4 de TODOS os aplicativos será afetado. TCP passa sem efeito. Marque o consentimento ou selecione Saída do alvo com PID estrito."
-            : scoped && !IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 }
+            : !IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 }
                 ? "Selecione a aplicação-alvo. Este perfil exige PID estrito e conexões verificadas, sem trocar o filtro escolhido. Depois pressione START."
             : IsExperimentalSelected && !ExperimentalOptIn
                 ? "Ative o Opt-in EXPERIMENTAL para reordenar somente UDP loopback próprio. Depois pressione START."
-            : !CycleProfileEnabled ? "Efeito desabilitado. Marque Habilitado para permitir o pulso; START somente arma a captura."
             : s.Requested && !s.Running
                 ? "Aguardando conexões do processo; reconecte para observar UDP. Captura ainda inativa; STOP cancela a espera. " + s.Reason
             : s.Running ? (_packetEngine.IsEffectActive ? "Pulso ativo. " : "Captura ARMADA, sem efeito. Espaço ou Pulso manual dispara o efeito. ") +
@@ -565,6 +564,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             : s.ProcessId != 0 ? "Captura parada. Pressione START. " + s.Reason
             : IsLegacyGlobalSelected ? "GLOBAL outbound parado. START arma sem efeito; afeta todos os aplicativos no pulso."
             : "Selecione a aplicação-alvo e pressione START; captura exige PID vivo e conexões verificadas.");
+        if (!CycleProfileEnabled) StartStatusText += " Efeito desabilitado: marque Habilitado para permitir o pulso; START somente arma.";
     }
     public string EngineStatusColor => IsEngineRunning ? "#06D6A0" : "#E63946";
 
@@ -607,6 +607,41 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public ICommand TriggerCycleCommand { get; }
     public ICommand CancelCycleCommand { get; }
     public ICommand ToggleEngineCommand { get; }
+    public ICommand CopyDiagnosticCommand { get; }
+    private string _lastStartDiagnostic = "Nenhum START pressionado nesta sessão.";
+
+    // Allowlist only: never copy process identity, tuples, custom filter, exception
+    // text, file paths, tokens or raw logs. Native codes survive without their text.
+    public string SupportDiagnosticText => "DarkDesync — diagnóstico redigido\n" +
+        "Último START:\n" + _lastStartDiagnostic + "\nEstado atual:\n" + SafeDiagnosticSnapshot();
+
+    private string SafeDiagnosticSnapshot()
+    {
+        var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
+        var native = System.Text.RegularExpressions.Regex.Match(s.Reason, @"Win32\s+(\d+)");
+        string reason = CompatibilityError != null ? "INCOMPATÍVEL: direção/escopo do efeito" :
+            IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent ? "Consentimento GLOBAL UDP ausente" :
+            !IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 } ? "PID obrigatório ausente" :
+            IsExperimentalSelected && !ExperimentalOptIn ? "Opt-in EXPERIMENTAL ausente" :
+            native.Success ? "Falha WinDivert; consultar código Win32" :
+            s.Running ? "ARMADO" : s.Requested ? "AGUARDANDO tupla exata" :
+            _startError != null ? "START recusado; detalhe local omitido por privacidade" : "PARADO";
+        return $"filter={GetFilterMode()}; mode={ModeCatalog.Parse(SelectedDiagnosticModeText)}; pulseMs={DiagnosticCycleDurationMs}; enabled={CycleProfileEnabled}\n" +
+            $"globalUdpConsent={GlobalPacketSizeConsent}; experimental={ExperimentalOptIn}; foregroundOnly={OnlyTargetForeground}; hotkey={SelectedHotkeyName}; targetSelected={SelectedProcess is { ProcessId: > 0 }}\n" +
+            $"requested={_packetEngine?.IsCaptureRequested ?? false}; running={_packetEngine?.IsRunning ?? false}; FLOW={s.Observing}; Win32={(native.Success ? native.Groups[1].Value : "none")}\n" +
+            $"reason={reason}; TCP observed/scoped={s.TcpObserved}/{s.TcpScoped}; UDP bindings/observed/eligible/scoped={s.UdpBindings}/{s.UdpObserved}/{s.UdpEligible}/{s.UdpScoped}";
+    }
+
+    private void CopyDiagnostic()
+    {
+        try
+        {
+            Clipboard.SetText(SupportDiagnosticText);
+            AddLog("[SUPORTE] Diagnóstico copiado por clique; sem IP/portas, PID, nomes de processo ou logs brutos.");
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        { AddLog("[SUPORTE] Área de transferência indisponível; tente Copiar diagnóstico novamente."); }
+    }
     public ICommand RefreshProcessesCommand { get; }
     public ICommand ClearHistoryCommand { get; }
     public ICommand SelectProfileCommand { get; }
@@ -644,6 +679,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ResetSettingsCommand = new RelayCommand(() => ApplySettings(new AppSettings()));
         CancelCycleCommand = new RelayCommand(ExecuteCancelCycle);
         ToggleEngineCommand = new RelayCommand(ExecuteToggleEngine);
+        CopyDiagnosticCommand = new RelayCommand(CopyDiagnostic);
         RefreshProcessesCommand = new RelayCommand(RefreshProcessList);
         ClearHistoryCommand = new RelayCommand(() => History.Clear());
         SelectProfileCommand = new RelayCommand(p =>
@@ -837,6 +873,19 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
 
     private void ExecuteToggleEngine()
+    {
+        bool stopping = _packetEngine?.IsCaptureRequested ?? IsEngineRunning;
+        AddLog(stopping ? "[STOP PRESSED] Cancelando captura/espera." : "[START PRESSED] " + SafeDiagnosticSnapshot());
+        try { ExecuteToggleEngineCore(); }
+        finally
+        {
+            RefreshNetworkDiagnostics();
+            if (!stopping) _lastStartDiagnostic = SafeDiagnosticSnapshot();
+            AddLog("[" + (stopping ? "STOP" : "START") + " RESULT] " + StartStatusText);
+        }
+    }
+
+    private void ExecuteToggleEngineCore()
     {
         _startError = null;
         if (IsLegacyGlobalSelected)
