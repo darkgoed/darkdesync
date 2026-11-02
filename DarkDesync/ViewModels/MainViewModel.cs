@@ -1086,6 +1086,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _selectedDiagnosticModeText = _unavailableSavedMode.Value.ToString();
             OnPropertyChanged(nameof(SelectedDiagnosticModeText));
             OnPropertyChanged(nameof(SelectedOutboundEffect));
+            OnPropertyChanged(nameof(EffectSupportText));
             OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
         }
         else SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);
