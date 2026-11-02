@@ -38,6 +38,23 @@ internal static partial class Program
         Pump();
     }
 
+    private static void RouteSpace(Button button)
+    {
+        button.Focus(); Pump();
+        Require(button.IsKeyboardFocused, "Real loaded START/STOP button has WPF keyboard focus");
+        var source = PresentationSource.FromVisual(button)!;
+        var down = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, Environment.TickCount, System.Windows.Input.Key.Space)
+            { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent };
+        button.RaiseEvent(down);
+        if (!down.Handled) { down.RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent; button.RaiseEvent(down); }
+        Pump();
+        var up = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, Environment.TickCount, System.Windows.Input.Key.Space)
+            { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyUpEvent };
+        button.RaiseEvent(up);
+        if (!up.Handled) { up.RoutedEvent = System.Windows.Input.Keyboard.KeyUpEvent; button.RaiseEvent(up); }
+        Pump();
+    }
+
     private static int RunNativeUi()
     {
         if (Environment.GetEnvironmentVariable("DARKDESYNC_DRIVER_TESTS") != "1" ||
@@ -54,6 +71,7 @@ internal static partial class Program
             window.Show(); Pump();
             var vm = (MainViewModel)window.DataContext;
             var engine = (PacketEngine)typeof(MainViewModel).GetField("_packetEngine", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!;
+            var hotkey = (HotkeyService)typeof(MainViewModel).GetField("_hotkeyService", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!;
             var controls = Descendants(window).ToArray();
             var effects = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             var filters = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.FilterModeOptions));
@@ -97,14 +115,24 @@ internal static partial class Program
                 Require(engine.IsCaptureRequested && engine.IsRunning && Equals(start.Content, "STOP"), "Native GLOBAL START without PID/extra consent: " + mode);
                 Require(status.Text.Contains("ARMADA") && status.Text.Contains("Habilitado"), "Disabled effect must not mask native arming");
                 Require(!engine.IsEffectActive && engine.PacketsThrottled == 0, "START only arms");
+                RouteSpace(start);
+                Require(engine.IsCaptureRequested && engine.IsRunning, "Space must not activate focused STOP button");
                 Await(TcpLoopbackProbe());
                 InvokeButton(pulse); Require(!engine.IsEffectActive, "Habilitado=false refuses pulse, not START");
                 enabled.IsChecked = true; vm.DiagnosticCycleDurationMs = 250; Pump();
+                // Exercise the hook subscriber with a dispatched physical edge
+                // and the real focused WPF key route. Not a hardware-key claim.
+                hotkey.DispatchKeyTransition(0x20, true); Pump();
+                Require(engine.IsEffectActive, "Hotkey subscriber pulses the native armed capture");
+                RouteSpace(start);
+                Require(engine.IsCaptureRequested && engine.IsRunning, "Configured Space keeps native START armed with STOP focused");
+                hotkey.DispatchKeyTransition(0x20, false);
+                Until(() => !engine.IsEffectActive);
                 InvokeButton(pulse); Require(engine.IsEffectActive, "Manual WPF button pulses selected effect");
                 Await(TcpLoopbackProbe());
                 ClickStart(); Stopped();
                 Require(engine.PacketsDropped == 0, "No legacy drop path");
-                Console.WriteLine("PASS UIA/native GLOBAL: " + mode + "; no PID/extra consent; START no effect; checkbox; own TCP; pulse; STOP");
+                Console.WriteLine("PASS UIA/native GLOBAL: " + mode + "; no PID/extra consent; START no effect; checkbox; focused Space regression; hotkey subscriber; own TCP; pulse; STOP");
             }
             vm.DiagnosticCycleDurationMs = 200;
             foreach (var mode in new[] { DiagnosticMode.InboundBandwidthShaping, DiagnosticMode.CorrelatedInboundJitter, DiagnosticMode.AsymmetricDuplexShaping, DiagnosticMode.ControlledPacketReordering })

@@ -54,6 +54,16 @@ public partial class MainWindow : Window
 
     private void Minimize_Click(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
 
+    private void StartStop_PreviewKey(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        // A mouse click leaves STOP focused. WPF would otherwise interpret the
+        // configured Space hotkey as Button.OnClick on key-up and stop capture.
+        // Only consume this control's local activation; the global hook remains
+        // pass-through and retains its physical-edge/injected-input safeguards.
+        if (e.Key == System.Windows.Input.Key.Space && _viewModel.SelectedHotkeyName == "Espaço")
+            e.Handled = true;
+    }
+
     private void Maximize_Click(object sender, RoutedEventArgs e)
     {
         if (WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(this);
