@@ -115,7 +115,7 @@ public sealed class ConfigurationBehaviorTests
         Assert.Equal(original, File.ReadAllBytes(store.FilePath));
         Assert.Equal(oldMode, store.Load().DiagnosticMode);
         Assert.Contains("Efeito antigo", vm.SettingsStatus);
-        Assert.Equal("Outbound Freeze", vm.SelectedDiagnosticModeText);
+        Assert.Equal(ModeCatalog.Name(DiagnosticMode.OutboundFreeze), vm.SelectedDiagnosticModeText);
         Assert.Equal(175, vm.DiagnosticCycleDurationMs); Assert.Equal(71, vm.ThrottleJitterMs);
         Assert.False(engine.IsCaptureRequested);
         ArmedCaptureTests.ModelArm(engine);
@@ -140,7 +140,7 @@ public sealed class ConfigurationBehaviorTests
         Assert.Equal(200, vm.DiagnosticCycleDurationMs);
         vm.SelectedDiagnosticModeText = text;
         vm.SaveSettingsCommand.Execute(null); vm.ResetSettingsCommand.Execute(null); vm.LoadSettings();
-        Assert.Equal(text, vm.SelectedDiagnosticModeText); Assert.Equal(200, vm.DiagnosticCycleDurationMs);
+        Assert.Equal(ModeCatalog.Name(mode), vm.SelectedDiagnosticModeText); Assert.Equal(200, vm.DiagnosticCycleDurationMs);
         ArmedCaptureTests.ModelArm(engine);
         vm.TriggerCycleCommand.Execute(null);
         Assert.Equal(mode, engine.ActiveDiagnosticMode);

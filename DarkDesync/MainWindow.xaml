@@ -22,7 +22,7 @@
     <TextBlock Text="Controle de tráfego" FontSize="26" FontWeight="SemiBold" />
     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
      <Border Background="#252331" CornerRadius="7" Padding="12,10" Margin="0,0,10,0"><StackPanel Orientation="Horizontal"><Ellipse Width="7" Height="7" Fill="{Binding StatusColorBrush}" Margin="0,0,8,0" /><TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" /></StackPanel></Border>
-     <Button Content="{Binding EngineToggleText}" Command="{Binding ToggleEngineCommand}" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" />
+     <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Content="{Binding EngineToggleText}" Command="{Binding ToggleEngineCommand}" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" />
      <Button Content="Pulso manual →" Focusable="False" Command="{Binding TriggerCycleCommand}" Style="{StaticResource ModernButton}" Margin="0,0,8,0" />
      <Button Content="Cancelar" Visibility="{Binding IsStrictCaptureMode, Converter={StaticResource BoolVisibility}}" Command="{Binding CancelCycleCommand}" Style="{StaticResource DangerButton}" />
     </StackPanel>
@@ -38,6 +38,7 @@
 
       <TextBox Text="{Binding CustomFilterText, UpdateSourceTrigger=PropertyChanged}" Visibility="{Binding IsCustomFilterVisible, Converter={StaticResource BoolVisibility}}" Margin="0,10,0,0" ToolTip="Restrição adicional WinDivert; nunca amplia o alvo" />
       <TextBlock x:Name="StartStatus" Text="{Binding StartStatusText}" TextWrapping="Wrap" Margin="0,12,0,0" />
+      <Button x:Name="CopyDiagnosticButton" Content="Copiar diagnóstico" Command="{Binding CopyDiagnosticCommand}" Style="{StaticResource OutlineButton}" Margin="0,10,0,0" ToolTip="Copia somente estado e códigos de erro, sem IP/portas ou nomes de processos. Envie ao suporte após tentar START." />
       <Expander Header="Diagnóstico de captura" Foreground="{StaticResource TextMutedBrush}" Margin="0,12,0,0"><StackPanel>
        <TextBlock x:Name="NetworkScopeDiagnostics" Text="{Binding NetworkDiagnosticsText}" Style="{StaticResource HelpText}" />
        <TextBlock Text="{Binding ScopedTuplesText}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="10" />
@@ -45,6 +46,8 @@
      </StackPanel></Border>
      <Border Style="{StaticResource CardPanel}" Margin="0,16,0,0"><StackPanel>
       <TextBlock Text="EFEITO" Style="{StaticResource SectionLabel}" />
+      <TextBlock Text="Ranking pessoal · avaliação a 250 ms" Style="{StaticResource HelpText}" />
+      <TextBlock Text="Não altera a duração do pulso abaixo." Style="{StaticResource HelpText}" />
       <CheckBox Content="Habilitado" IsChecked="{Binding CycleProfileEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
       <ComboBox ItemsSource="{Binding DiagnosticModeOptions}" SelectedItem="{Binding SelectedDiagnosticModeText}" Margin="0,0,0,16" />
       <CheckBox Content="Opt-in EXPERIMENTAL · reordenar UDP loopback próprio" IsChecked="{Binding ExperimentalOptIn}" Visibility="{Binding IsExperimentalSelected, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,12" ToolTip="Somente laboratório autorizado. Não altera TCP, não garante efeitos Roblox. Consentimento não é salvo." />

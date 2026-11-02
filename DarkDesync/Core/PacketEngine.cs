@@ -515,12 +515,21 @@ public sealed class PacketEngine : IDisposable
     {
         lock (_lifecycleLock)
         {
-            if (_disposed || !Enum.IsDefined(mode) || _filterMode != FilterMode.LegacyGlobalOutbound ||
-                ProfileCompatibilityError(_armedScopeProfile, _filterMode) != null ||
-                (_armedScopeProfile == DiagnosticMode.PacketSizeAwareShaping && !GlobalPacketSizeConsent) ||
-                _isRunning || _legacyPulseActive || _captureRequested ||
-                _stateMachine.Current != DesyncStateMachine.State.Idle)
+            string? refusal = _disposed ? "Motor encerrado." :
+                !Enum.IsDefined(mode) ? "Modo inválido." :
+                _filterMode != FilterMode.LegacyGlobalOutbound ? "Filtro GLOBAL não aplicado ao motor." :
+                ProfileCompatibilityError(_armedScopeProfile, _filterMode) ??
+                (_armedScopeProfile == DiagnosticMode.PacketSizeAwareShaping && !GlobalPacketSizeConsent
+                    ? "Consentimento GLOBAL UDP obrigatório." :
+                _isRunning || _legacyPulseActive || _captureRequested ? "Captura já solicitada; use STOP." :
+                _stateMachine.Current != DesyncStateMachine.State.Idle ? "Motor não está Idle; use STOP antes de START." : null);
+            if (refusal != null)
+            {
+                _lastCaptureError = "START GLOBAL recusado: " + refusal;
+                PublishGlobalStatus();
+                ErrorOccurred?.Invoke(_lastCaptureError);
                 return false;
+            }
 
             _legacyPulseActive = true;
             _captureRequested = true;
@@ -612,6 +621,8 @@ public sealed class PacketEngine : IDisposable
     private PulseShaper? _pulseShaper;
     private ScopedPulseScheduler? _scopedScheduler;
     private DiagnosticMode _armedScopeProfile;
+    internal DiagnosticMode ArmedScopeProfile { get { lock (_lifecycleLock) return _armedScopeProfile; } }
+    internal FilterMode ConfiguredFilterMode { get { lock (_lifecycleLock) return _filterMode; } }
     private long _reorderedPairs;
     public long IntentionallyReorderedPairs => Interlocked.Read(ref _reorderedPairs);
     private long _reinjectionFailures;

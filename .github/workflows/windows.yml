@@ -91,6 +91,12 @@ jobs:
         run: dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --nologo
       - name: Explicit driver tests (GLOBAL cases require separate consent; generated traffic is local)
         run: dotnet test DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --filter "Category=Driver" --logger "trx;LogFileName=driver.trx" --results-directory artifacts/driver
+      - name: Real WPF UI Automation START button with native WinDivert
+        if: inputs.legacy_global_tests
+        shell: pwsh
+        run: |
+          dotnet run --project DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --no-build -- --driver-ui 2>&1 | Tee-Object -FilePath artifacts/driver/wpf-native-start.txt
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:

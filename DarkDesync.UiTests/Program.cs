@@ -10,19 +10,20 @@ using DarkDesync.Services;
 using DarkDesync.ViewModels;
 
 // Windows/STA visual-tree and binding smoke test. No packet capture is started.
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main(string[] args)
     {
         if ((args.Length == 3 || args.Length == 4) && args[0] == "--udp-peer") return RunUdpPeer(args);
+        if (args.SequenceEqual(new[] { "--driver-ui" })) return RunNativeUi();
         string temporary = Path.Combine(Path.GetTempPath(), "DarkDesync-UI-" + Guid.NewGuid());
         var errors = new BindingErrors();
         PresentationTraceSources.DataBindingSource.Listeners.Add(errors);
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
         try
         {
-            var app = new App(); app.InitializeComponent();
+            var app = CreateTestApplication();
             var window = new MainWindow(new SettingsStore(Path.Combine(temporary, "settings.json")));
             var vm = (MainViewModel)window.DataContext;
             window.Show(); Pump();
@@ -34,8 +35,9 @@ internal static class Program
             var controls = Descendants(window).ToArray();
             var mode = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
             Require(controls.OfType<ComboBox>().Count(c => ReferenceEquals(c.ItemsSource, vm.AvailableHotkeys.Keys)) <= 1, "One hotkey picker");
-            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "Outbound Freeze", "Dual Token Bucket", "Bandwidth Shaping", "Flow-Aware Shaping", "Inbound Bandwidth Shaping", "Correlated Inbound Jitter", "Packet Size-Aware Shaping", "Asymmetric Duplex Shaping", "Controlled Packet Reordering — EXPERIMENTAL" }), "Exactly nine effects, rejected modes absent");
-            Require(vm.SelectedDiagnosticModeText == "Outbound Freeze" && vm.DiagnosticCycleDurationMs == 200, "Freeze / 200ms defaults");
+            Require(vm.DiagnosticModeOptions.SequenceEqual(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping", "Inbound Bandwidth Shaping", "Correlated Inbound Jitter", "Packet Size-Aware Shaping", "Asymmetric Duplex Shaping", "Controlled Packet Reordering — EXPERIMENTAL" }), "Personal ranking then six unchanged unranked choices");
+            Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.OutboundFreeze) && Equals(mode.SelectedItem, vm.SelectedDiagnosticModeText) && vm.DiagnosticCycleDurationMs == 200, "Freeze / 200ms defaults, reordering does not select first item");
+            Require(controls.OfType<TextBlock>().Any(t => t.Text == "Ranking pessoal · avaliação a 250 ms"), "Ranking context is subjective, not applied duration");
             Require(controls.OfType<Slider>().Count() == 1, "Only shared pulse slider; retention/loss controls removed");
             Require(!controls.OfType<TextBlock>().Any(t => t.Text.Contains("RETENÇÃO E JITTER")), "Retention panel removed");
             foreach (string effect in vm.DiagnosticModeOptions)
@@ -68,7 +70,7 @@ internal static class Program
             vm.ResetSettingsCommand.Execute(null); Pump();
             Require(!vm.IsLegacyGlobalSelected && vm.EngineToggleText == "START", "Default is strict, START is idle");
             vm.SelectedFilterModeText = "Outbound legado — todos os aplicativos (global)"; Pump();
-            Require(vm.SelectedDiagnosticModeText == "Outbound Freeze", "GLOBAL preserves safe Freeze default");
+            Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.OutboundFreeze), "GLOBAL preserves safe Freeze default");
             Require(vm.SelectedFilterModeText.Contains("todos os aplicativos"), "GLOBAL scope explicit in filter option");
             Require(vm.EngineToggleText == "START", "Selecting GLOBAL does not open capture");
             Require(!controls.OfType<CheckBox>().Any(c => c.Name == "GlobalLegacyConsent"), "GLOBAL requires no extra consent checkbox");
@@ -76,7 +78,7 @@ internal static class Program
                 "START/STOP button is available in GLOBAL");
             vm.TriggerCycleCommand.Execute(null); Pump();
             Require(!vm.IsEngineRunning && vm.NetworkDiagnosticsText.Contains("GLOBAL"), "Manual pulse cannot arm GLOBAL without START");
-            mode.SelectedItem = "Dual Token Bucket"; Pump();
+            mode.SelectedItem = ModeCatalog.Name(DiagnosticMode.DualTokenBucket); Pump();
             var pulseSlider = controls.OfType<Slider>().Single(sl => sl.Minimum == 0 && sl.Maximum == 800);
             Require(pulseSlider.IsVisible, "Pulse duration must also be visible in GLOBAL");
             pulseSlider.Value = 175; Pump();
@@ -87,7 +89,7 @@ internal static class Program
             vm.SaveSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
             Require(vm.IsLegacyGlobalSelected && vm.EngineToggleText == "START",
                 "GLOBAL mode selection persists, capture never starts on load");
-            Require(vm.SelectedDiagnosticModeText == "Dual Token Bucket", "New effect roundtrip without starting capture");
+            Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.DualTokenBucket), "New effect roundtrip without starting capture");
             // Explicit driver-free lifecycle model; native capture is covered only by the Driver suite.
             var engine = (PacketEngine)typeof(MainViewModel).GetField("_packetEngine",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(vm)!;
@@ -168,17 +170,17 @@ internal static class Program
             enabled.IsChecked = true; Pump();
             Require(vm.CycleProfileEnabled, "Enable the profile before the pending START scenario");
             Require(optIn.IsVisible, "Reordering opt-in is visible");
-            startButton.Command.Execute(null); Pump();
+            InvokeButton(startButton); Pump();
             Require(startStatus.Text.Contains("Opt-in") && !engine.IsCaptureRequested, "Opt-in preflight uses visible status");
             optIn.IsChecked = true; Pump();
-            startButton.Command.Execute(null); Pump();
+            InvokeButton(startButton); Pump();
             Require(Equals(startButton.Content, "STOP") && vm.StatusText == "AGUARDANDO" && startStatus.Text.Contains("Aguardando conexões"),
                 $"START button binding reflects pending capture, not active: button={startButton.Content}, status={vm.StatusText}, detail={startStatus.Text}");
             Require(vm.SelectedFilterModeText == vm.FilterModeOptions[0], "START keeps PID Outbound selection");
             enabled.IsChecked = false; Pump();
             Require(!vm.CycleProfileEnabled && startStatus.Text.Contains("Habilitado"), "Enable checkbox binding gives explicit instruction");
             enabled.IsChecked = true; Pump();
-            startButton.Command.Execute(null); Pump();
+            InvokeButton(startButton); Pump();
             Require(Equals(startButton.Content, "START") && !engine.IsCaptureRequested, "STOP cancels pending START through UI command");
             vm.SelectedFilterModeText = vm.FilterModeOptions[4];
             mode.SelectedItem = "Packet Size-Aware Shaping"; Pump();
