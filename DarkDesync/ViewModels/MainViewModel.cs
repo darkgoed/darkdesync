@@ -42,6 +42,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string _settingsStatus = "Salve para reutilizar ao abrir. O alvo não é salvo.";
     public string SettingsStatus { get => _settingsStatus; private set { if (SetProperty(ref _settingsStatus, value)) OnPropertyChanged(nameof(CompactSettingsStatus)); } }
     public string CompactSettingsStatus => _settingsStatus.StartsWith("Configuração salva") ? "Configuração salva." :
+        _settingsStatus.StartsWith("Selecione") ? "Selecione um dos quatro favoritos antes de salvar." :
         _settingsStatus.StartsWith("Não foi possível") ? "Não foi possível carregar ou salvar a configuração." :
         _settingsStatus.StartsWith("Configuração carregada") ? "Configuração carregada · sem iniciar captura." : "Salvar é explícito. START apenas arma; Espaço aplica o pulso.";
     public string SettingsPath => _settingsStore.FilePath;
@@ -388,7 +389,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _ => "START apenas arma; Espaço ou Pulso manual aplica o efeito. STOP libera pendências."
     };
 
-    // One pulse duration shared by the twelve visible effects.
+    // One next-pulse duration shared by the four visible favorites.
     public IReadOnlyList<string> PulseStyleOptions { get; } = EffectExperienceCatalog.PrimaryStyles;
     public ICommand SelectPulseStyleCommand { get; }
     public bool IsLegitStyle { get => _selectedPulseStyle == "Legit"; set { if (value) SelectedPulseStyle = "Legit"; } }
@@ -426,7 +427,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string EffectRatingText => CurrentEffectRating.Label;
     public string EffectRatingBackground => CurrentEffectRating.Background;
     public string EffectRatingForeground => CurrentEffectRating.Foreground;
-    public string EffectRatingNote => $"Avaliação pessoal · {DiagnosticCycleDurationMs} ms. {CurrentEffectRating.Note}";
+    public string EffectRatingNote => $"Avaliação pessoal · {DiagnosticCycleDurationMs} ms: {CurrentEffectRating.Note}";
     private void RefreshEffectRating()
     {
         OnPropertyChanged(nameof(EffectRatingText)); OnPropertyChanged(nameof(EffectRatingBackground));
@@ -611,7 +612,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         get
         {
-            if (CompatibilityError != null) return "Efeito salvo indisponível. Escolha um dos 12 efeitos.";
+            if (CompatibilityError != null) return "Efeito antigo indisponível. Selecione um dos quatro favoritos.";
             if (_startError == null || Stopwatch.GetElapsedTime(_startErrorAt).TotalSeconds > 15) return "";
             var native = System.Text.RegularExpressions.Regex.Match(_packetEngine?.ScopeStatus.Reason ?? "", @"Win32\s+(\d+)");
             return native.Success ? native.Groups[1].Value switch
@@ -991,6 +992,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void ExecuteTriggerCycle(string source)
     {
+        if (_outboundOnly && CompatibilityError != null) { RefreshNetworkDiagnostics(); return; }
         if (_packetEngine is not { IsCaptureRequested: true, IsRunning: true })
         {
             RefreshNetworkDiagnostics();
@@ -1108,6 +1110,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private void SaveSettings()
     {
+        if (_outboundOnly && (_unavailableSavedMode != null || SelectedOutboundEffect == null))
+        { SettingsStatus = "Selecione um efeito disponível antes de salvar."; return; }
         try
         {
             _settingsStore.Save(new AppSettings
