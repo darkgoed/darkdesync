@@ -887,7 +887,11 @@ public sealed partial class PacketEngine : IDisposable
                     var token = _cts.Token;
                     _captureTask = Task.Factory.StartNew(() => CaptureLoop(token, epoch), CancellationToken.None,
                         TaskCreationOptions.LongRunning, TaskScheduler.Default);
-                    _throttleReleaseTask ??= Task.Run(() => ThrottleReleaseLoop(token));
+                    // Native capture and release must both survive ThreadPool starvation.
+                    // An async Delay continuation can otherwise miss the entire pulse,
+                    // force deadline FIFO drain and stall STOP while joining the worker.
+                    _throttleReleaseTask ??= Task.Factory.StartNew(() => ThrottleReleaseLoop(token),
+                        CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 }
                 else if (filter != "false") _captureRequested = false;
             }
@@ -1722,7 +1726,7 @@ public sealed partial class PacketEngine : IDisposable
     /// Background loop releasing throttled packets once their Timeframe expires.
     /// Can release packets instantly (burst) or spaced out (speed control).
     /// </summary>
-    private async Task ThrottleReleaseLoop(CancellationToken ct)
+    private void ThrottleReleaseLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
@@ -1730,7 +1734,7 @@ public sealed partial class PacketEngine : IDisposable
             {
                 // Bounded turns retain fairness under sustained traffic, without busy-spinning.
                 for (int released = 0; released < 64 && TryReleaseNext(_timestamp()); released++) { }
-                await Task.Delay(4, ct).ConfigureAwait(false);
+                if (ct.WaitHandle.WaitOne(4)) break; // cancellable blocking wait on dedicated thread; no busy spin
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
