@@ -75,11 +75,13 @@ public sealed class BufferingDriverTests(ITestOutputHelper output)
                     DiagnosticMode.BandwidthShaping => 45,
                     _ => 20
                 };
-                Assert.True(receivedAt[0] >= minimum, $"{mode} released before its byte/phase budget: {receivedAt[0]:F1}ms");
+                string evidence = $"{mode}; ms=[{string.Join(",", receivedAt.Select(t => t.ToString("F1")))}]; fallback={engine.LastShapingFallback ?? "none"}";
+                output.WriteLine(evidence);
+                Assert.True(receivedAt[0] >= minimum, $"Released before byte/phase budget: {evidence}");
                 if (mode != DiagnosticMode.OutboundFreeze)
                 {
-                    Assert.True(receivedAt[0] < 195, $"{mode} behaved like full-pulse Freeze");
-                    Assert.True(receivedAt[^1] - receivedAt[0] > 25, $"{mode} did not pace this controlled burst");
+                    Assert.True(receivedAt[0] < 195, $"Full-pulse Freeze: {evidence}");
+                    Assert.True(receivedAt[^1] - receivedAt[0] > 25, $"Did not pace controlled burst: {evidence}");
                 }
                 output.WriteLine($"{mode}: UDP 16/16 FIFO, reinjection-observed receive ms=[{string.Join(",", receivedAt.Select(t => t.ToString("F1")))}], span={receivedAt[^1] - receivedAt[0]:F1}ms; {engine.ProtocolCounters}");
 

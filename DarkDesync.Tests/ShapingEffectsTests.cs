@@ -154,7 +154,9 @@ public sealed class ShapingEffectsTests(ITestOutputHelper output)
         Assert.True(e.TriggerArmedEffect(mode, 200)); Capture(e, 23); e.Stop(); e.FlushThrottleQueue();
         Assert.Equal(Enumerable.Range(0, 24).Select(i => (byte)i), ids);
         Assert.Equal(0, e.PacketsDropped); Assert.False(e.IsCaptureRequested);
-        ArmedCaptureTests.ModelArm(e); Assert.True(e.TriggerArmedEffect(mode, 200));
+        ArmedCaptureTests.ModelArm(e);
+        e.SendOverride = (p, n, _) => { ids.Add(Marshal.ReadByte(p, (int)n - 1)); return true; };
+        Assert.True(e.TriggerArmedEffect(mode, 200));
         Capture(e, 24); e.Stop(); Assert.Equal(24, ids[^1]);
     }
 

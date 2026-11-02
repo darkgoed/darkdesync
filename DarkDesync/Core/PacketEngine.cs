@@ -590,6 +590,7 @@ public sealed class PacketEngine : IDisposable
     private long _effectStartedTicks;
     private long _shapingFinishTicks;
     private PulseShaper? _pulseShaper;
+    internal string? LastShapingFallback { get; private set; }
     private Timer? _effectTimer;
     public bool IsEffectActive
     {
@@ -636,6 +637,7 @@ public sealed class PacketEngine : IDisposable
             _shapingFinishTicks = _effectStartedTicks;
             _effectDeadline = _effectStartedTicks + (long)duration * Stopwatch.Frequency / 1000;
             _pulseShaper = PulseShaper.Handles(mode) ? new PulseShaper(mode, _effectStartedTicks, _effectDeadline) : null;
+            LastShapingFallback = null;
             _activeDiagnosticMode = mode;
             _stateMachine.TryActivateArmed();
             _effectTimer?.Dispose();
@@ -971,6 +973,8 @@ public sealed class PacketEngine : IDisposable
                              SetFlow(out flow, Marshal.ReadByte(packetBuffer, 9), source!, sourcePort, destination!, destinationPort));
                         if (!identifiable || _pulseShaper == null || recvLen == 0 || recvLen > 1536 || _pulseShaper.Count >= 512)
                         {
+                            LastShapingFallback = $"mode={_activeDiagnosticMode}; identifiable={identifiable}; IP bytes={recvLen}; queued={_pulseShaper?.Count}";
+                            _logger.LogWarning("Shaping fail-open: {Reason}", LastShapingFallback);
                             CancelArmedEffectLocked();
                             RecordSend(SendPacket(packetBuffer, recvLen, addr));
                             return false;
@@ -980,6 +984,8 @@ public sealed class PacketEngine : IDisposable
                         var packet = new ThrottledPacket { Data = data, Length = recvLen, Address = addr, TimestampTicks = _timestamp() };
                         if (!_pulseShaper.Enqueue(packet, flow))
                         {
+                            LastShapingFallback = $"mode={_activeDiagnosticMode}; flow/burst capacity; IP bytes={recvLen}; queued={_pulseShaper.Count}";
+                            _logger.LogWarning("Shaping fail-open: {Reason}", LastShapingFallback);
                             CancelArmedEffectLocked();
                             RecordSend(SendPacket(packetBuffer, recvLen, addr));
                             return false;
