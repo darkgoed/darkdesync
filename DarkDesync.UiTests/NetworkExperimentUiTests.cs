@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Text.Json;
 using System.Windows.Automation;
 using System.Windows.Interop;
 using System.Windows;
@@ -39,8 +40,17 @@ internal static partial class Program
                 ((SelectionItemPattern)items[4].GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
                 ((ExpandCollapsePattern)selector.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Collapse();
                 ((InvokePattern)At("RunExperiment", 5).GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-                string text = ((ValuePattern)At("ExperimentOutput", 7).GetCurrentPattern(ValuePattern.Pattern)).Current.Value;
-                Require(text.Contains("Requer laboratório") && text.Contains("Sent"), "Real UIA invocation runs NAT prerequisite diagnostic with zero sent packets");
+                var value = (ValuePattern)At("ExperimentOutput", 7).GetCurrentPattern(ValuePattern.Pattern);
+                // InvokePattern queues WPF work; wait for that one invocation's result,
+                // not a retry of the experiment. JSON escapes must be decoded before assertions.
+                var clock = Stopwatch.StartNew(); string text;
+                do { text = value.Current.Value; if (text.StartsWith('{')) break; Thread.Sleep(10); } while (clock.Elapsed < TimeSpan.FromSeconds(3));
+                Console.WriteLine("UIA lab evidence: " + text);
+                using var json = JsonDocument.Parse(text);
+                Require(json.RootElement.GetProperty("Status").GetString() == "Requer laboratório" &&
+                    json.RootElement.GetProperty("Report").GetProperty("Id").GetInt32() == 4 &&
+                    json.RootElement.GetProperty("Report").GetProperty("Evidence").GetProperty("Sent").GetInt32() == 0,
+                    "Real UIA invocation runs NAT prerequisite diagnostic with zero sent packets");
                 Console.WriteLine("PASS external UIA: separate six-item lab, selection + invoke, blocked NAT/no probes and STOP state");
             }
             catch (Exception ex) { failure = ex; }
@@ -73,6 +83,7 @@ internal static partial class Program
             if (!child.HasExited) { child.Kill(true); throw new Exception("External lab UIA timeout"); }
             Console.WriteLine(output.GetAwaiter().GetResult());
             Require(child.ExitCode == 0, "Real external lab UIA: " + error.GetAwaiter().GetResult());
+            Require(!Descendants(lab).OfType<System.Windows.Controls.Button>().Single(x => x.Name == "StopExperiment").IsEnabled, "STOP disabled after real completion");
             Require(!engine.IsCaptureRequested && !engine.IsEffectActive, "Laboratory never arms pulse engine");
         }
         finally { lab.Close(); Pump(); }

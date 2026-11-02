@@ -25,7 +25,7 @@ internal static class NetworkExperiments
         new ExperimentDefinition(NetworkExperiment.TcpReceiveWindow, "TCP Receive Window Clamping", "Windows + WinDivert administrador; TCP loopback próprio", "Somente observação. Não contrai janela, não altera ACK nem cria zero-window. Não atua em UDP."),
         new ExperimentDefinition(NetworkExperiment.IPv6FlowLabel, "IPv6 Flow Label Variation", "IPv6 loopback + WinDivert administrador", "A/B de 20 bits em UDP próprio; label consistente por fluxo/fase. Não comprova mudança de rota."),
         new ExperimentDefinition(NetworkExperiment.IcmpFeedback, "ICMP Control-Plane Feedback", "Pilha ICMPv4/v6 local", "Echo legítimo local; sem erros falsos. PTB/NDP e recuperação PMTU exigem roteador de laboratório."),
-        new ExperimentDefinition(NetworkExperiment.NicOffload, "NIC Offload Variation", "Windows PowerShell + módulo NetAdapter", "Read-only: estado configurado não prova uso no hardware. Nenhum toggle ou placa desativada."),
+        new ExperimentDefinition(NetworkExperiment.NicOffload, "NIC Offload Variation", "Windows PowerShell + NetAdapter; captura própria opcional requer WinDivert", "Read-only: estado configurado e captura loopback não provam uso no hardware. Nenhum toggle ou placa desativada."),
         new ExperimentDefinition(NetworkExperiment.UdpNatLifetime, "UDP NAT Mapping Lifetime", "Gateway/NAT + reflector próprio tools/nat_reflector.py + token", "Sondas atrasadas sem keepalive medem sobrevivência, não timeout exato; loopback não prova NAT externo."),
         new ExperimentDefinition(NetworkExperiment.TcpSackTimestamp, "TCP SACK / Timestamp Behavior", "Windows + WinDivert administrador; TCP loopback próprio", "Somente opções realmente capturadas. Ausência de SACK blocks/timestamps é registrada, não fabricada. Sem benefício UDP.")
     };
@@ -168,8 +168,31 @@ internal static class NetworkExperiments
         if (process.ExitCode != 0) throw new InvalidOperationException("NetAdapter read failed: " + error);
         var data = JsonSerializer.Deserialize<JsonElement>(text);
         bool available = data.EnumerateArray().Any(x => x.GetProperty("Available").GetBoolean() && x.GetProperty("Values").GetArrayLength() > 0 && x.GetProperty("Command").GetString() != "Get-NetAdapter");
+        object capture;
+        try { capture = await OwnUdpCaptureAsync(ct); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or DllNotFoundException or SocketException or InvalidOperationException)
+        { capture = new { Captured = false, Reason = ex.GetType().Name + ": " + ex.Message }; }
         return Report(NetworkExperiment.NicOffload, available ? ExperimentStatus.ObservationOnly : ExperimentStatus.Unavailable,
-            "USO/LSO/checksum/RSS: consultas read-only por adaptador; falhas individuais explícitas. Capacidade/configuração não prova uso efetivo; correlação de hardware não realizada.", data);
+            "USO/LSO/checksum/RSS: consultas read-only por adaptador e amostra UDP própria. Loopback não exercita offload físico: captura/configuração não provam uso efetivo no hardware.",
+            new { Adapters = data, OwnCapture = capture });
+    }
+
+    private static async Task<object> OwnUdpCaptureAsync(CancellationToken ct)
+    {
+        using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        using var sender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        int src = ((IPEndPoint)sender.Client.LocalEndPoint!).Port, dst = ((IPEndPoint)receiver.Client.LocalEndPoint!).Port;
+        using var capture = new ExperimentCapture($"outbound and loopback and ip and udp and udp.SrcPort == {src} and udp.DstPort == {dst}");
+        byte[] payload = RandomNumberGenerator.GetBytes(64);
+        await sender.SendAsync(payload, new IPEndPoint(IPAddress.Loopback, dst), ct);
+        var reply = await receiver.ReceiveAsync(ct);
+        if (!reply.Buffer.SequenceEqual(payload)) throw new InvalidOperationException("Own UDP payload mismatch");
+        await Task.Delay(100, ct); capture.Dispose();
+        if (capture.ReadError != 0 || capture.Packets.Count == 0) throw new InvalidOperationException("Own UDP capture absent");
+        return new { Captured = true, SourcePort = src, DestinationPort = dst, PayloadExact = true,
+            LoopbackInterfaces = NetworkInterface.GetAllNetworkInterfaces().Where(x => x.NetworkInterfaceType == NetworkInterfaceType.Loopback).Select(x => x.Name).ToArray(),
+            PacketsHex = capture.Packets.Select(Convert.ToHexString).ToArray(),
+            CorrelationLimit = "Own loopback sample only. Physical NIC offload processing NOT exercised or proved; no A/B toggle performed." };
     }
 
     internal static void ValidateNat(NatLabEndpoint lab)

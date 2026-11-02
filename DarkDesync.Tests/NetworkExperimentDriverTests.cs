@@ -20,6 +20,13 @@ public sealed class NetworkExperimentDriverTests(ITestOutputHelper output)
         output.WriteLine(JsonSerializer.Serialize(report));
         Assert.Equal(expected, report.Status);
         Assert.NotNull(report.Evidence);
+        if (id == NetworkExperiment.NicOffload)
+        {
+            var data = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(report.Evidence));
+            Assert.True(data.GetProperty("OwnCapture").GetProperty("Captured").GetBoolean());
+            Assert.True(data.GetProperty("OwnCapture").GetProperty("PayloadExact").GetBoolean());
+            Assert.Equal(5, data.GetProperty("Adapters").GetArrayLength());
+        }
         if (id == NetworkExperiment.IPv6FlowLabel)
         {
             var evidence = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(report.Evidence));
