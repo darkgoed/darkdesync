@@ -62,29 +62,27 @@ internal static partial class Program
             throw new InvalidOperationException("Native UI requires isolated-runner driver AND GLOBAL consent.");
         string dir = Path.Combine(Path.GetTempPath(), "DarkDesync-NativeUI-" + Guid.NewGuid());
         MainWindow? window = null;
-        Process? child = null;
+
         try
         {
             var app = CreateTestApplication();
-            window = new MainWindow(new SettingsStore(Path.Combine(dir, "settings.json")));
-            app.MainWindow = window;
+            var store = new SettingsStore(Path.Combine(dir, "settings.json"));
+            window = new MainWindow(store); app.MainWindow = window;
             window.Show(); Pump();
             var vm = (MainViewModel)window.DataContext;
             var engine = (PacketEngine)typeof(MainViewModel).GetField("_packetEngine", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!;
             var hotkey = (HotkeyService)typeof(MainViewModel).GetField("_hotkeyService", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!;
             var controls = Descendants(window).ToArray();
             var effects = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.DiagnosticModeOptions));
-            var filters = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.FilterModeOptions));
-            var targets = controls.OfType<ComboBox>().Single(c => ReferenceEquals(c.ItemsSource, vm.Processes));
             var enabled = controls.OfType<CheckBox>().Single(c => Equals(c.Content, "Habilitado"));
             var status = (TextBlock)window.FindName("StartStatus");
+            var state = (TextBlock)window.FindName("CaptureState");
             var start = (Button)window.FindName("StartStopButton");
             var pulse = controls.OfType<Button>().Single(b => ReferenceEquals(b.Command, vm.TriggerCycleCommand));
+            var consent = (CheckBox)window.FindName("PacketSizeConsent");
             IntPtr hwnd = new WindowInteropHelper(window).Handle;
             void ClickStart()
             {
-                // Genuine UI Automation client -> HWND tree -> InvokePattern -> WPF
-                // Button.OnClick. Run on a separate MTA thread and keep STA pumping.
                 var click = Task.Run(() =>
                 {
                     var root = AutomationElement.FromHandle(hwnd);
@@ -95,132 +93,102 @@ internal static partial class Program
                 });
                 Await(click); Pump();
             }
-            void Select(DiagnosticMode mode, int filter)
+            void Select(DiagnosticMode mode)
             {
-                effects.SelectedItem = ModeCatalog.Name(mode);
-                filters.SelectedItem = vm.FilterModeOptions[filter]; Pump();
-                Require(ModeCatalog.Parse(vm.SelectedDiagnosticModeText) == mode, "Ranked ComboBox enum identity");
-                Require(vm.SelectedFilterModeText == vm.FilterModeOptions[filter], "Effect selection never changes explicit filter");
+                effects.SelectedItem = ModeCatalog.Name(mode); Pump();
+                Require(ModeCatalog.Parse(vm.SelectedDiagnosticModeText) == mode && vm.SelectedProcess == null, "Ranked effect identity, no process selection");
+                Require(vm.IsLegacyGlobalSelected && engine.ConfiguredFilterMode == FilterMode.LegacyGlobalOutbound, "Only global outbound is applied");
             }
             void Stopped()
             {
-                Require(!engine.IsCaptureRequested && !engine.IsRunning && Equals(start.Content, "START"), "STOP/refusal must not fake arming");
+                Require(!engine.IsCaptureRequested && !engine.IsRunning && Equals(start.Content, "START") && state.Text == "PARADO / PAUSADO", "STOP/refusal must not fake arming");
             }
-            vm.OnlyTargetForeground = false;
-            Require(vm.DiagnosticCycleDurationMs == 200, "Ranking must not set 250ms");
-            foreach (var mode in new[] { DiagnosticMode.DualTokenBucket, DiagnosticMode.FlowAwareShaping, DiagnosticMode.OutboundFreeze, DiagnosticMode.BandwidthShaping })
+            void Armed()
             {
-                targets.SelectedItem = null; Select(mode, 4);
-                enabled.IsChecked = false; Pump(); ClickStart();
-                Require(engine.IsCaptureRequested && engine.IsRunning && Equals(start.Content, "STOP"), "Native GLOBAL START without PID/extra consent: " + mode);
-                Require(status.Text.Contains("ARMADA") && status.Text.Contains("Habilitado"), "Disabled effect must not mask native arming");
-                Require(!engine.IsEffectActive && engine.PacketsThrottled == 0, "START only arms");
-                RouteSpace(start);
-                Require(engine.IsCaptureRequested && engine.IsRunning, "Space must not activate focused STOP button");
+                Require(engine.IsCaptureRequested && engine.IsRunning && Equals(start.Content, "STOP") && state.Text == "ARMADO / ATIVO", "Real driver, requested/running and conspicuous ARMADO state agree");
+                Require(engine.CurrentFilter == "outbound" && vm.SelectedProcess == null, "Literal outbound without a target");
+                Require(!engine.IsEffectActive && engine.ActiveDiagnosticMode == DiagnosticMode.None, "START only arms, never triggers effect");
+            }
+            Require(controls.OfType<ComboBox>().Count() == 2 && vm.Processes.Count == 0, "No network/protocol/target discovery or selectors");
+            Require(vm.DiagnosticCycleDurationMs == 200 && state.Text == "PARADO / PAUSADO", "Initial stopped state; ranking does not set 250ms");
+            foreach (var mode in ModeCatalog.OutboundChoices.Values.Where(m => m != DiagnosticMode.PacketSizeAwareShaping))
+            {
+                Select(mode); enabled.IsChecked = true; Pump(); ClickStart(); Armed();
+                Require(!vm.GlobalPacketSizeConsent && !vm.ExperimentalOptIn, "Four favorites need no extra opt-in");
+                RouteSpace(start); Armed(); // Routed WPF keys must not click focused STOP.
                 Await(TcpLoopbackProbe());
-                InvokeButton(pulse); Require(!engine.IsEffectActive, "Habilitado=false refuses pulse, not START");
+                enabled.IsChecked = false; Pump(); InvokeButton(pulse);
+                Require(!engine.IsEffectActive && state.Text == "ARMADO / ATIVO", "Disabled effect keeps capture armed but cannot pulse");
                 enabled.IsChecked = true; vm.DiagnosticCycleDurationMs = 250; Pump();
-                // Exercise the hook subscriber with a dispatched physical edge
-                // and the real focused WPF key route. Not a hardware-key claim.
                 hotkey.DispatchKeyTransition(0x20, true); Pump();
-                Require(engine.IsEffectActive, "Hotkey subscriber pulses the native armed capture");
-                RouteSpace(start);
-                Require(engine.IsCaptureRequested && engine.IsRunning, "Configured Space keeps native START armed with STOP focused");
-                hotkey.DispatchKeyTransition(0x20, false);
-                Until(() => !engine.IsEffectActive);
-                InvokeButton(pulse); Require(engine.IsEffectActive, "Manual WPF button pulses selected effect");
+                Require(engine.IsEffectActive, "Hotkey subscriber pulses the native capture (not a hardware-key claim)");
+                RouteSpace(start); Require(engine.IsRunning && engine.IsCaptureRequested, "Focused Space never stops native capture");
+                hotkey.DispatchKeyTransition(0x20, false); Until(() => !engine.IsEffectActive);
                 Await(TcpLoopbackProbe());
+                using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+                using var sender = new UdpClient(); sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
+                long held = engine.PacketsThrottled;
+                InvokeButton(pulse); Require(engine.IsEffectActive && state.Text == "PULSO ATIVO", "Pulse state is distinct from capture arming");
+                Await(sender.SendAsync(new byte[900], 900)); Until(() => engine.PacketsThrottled > held);
                 ClickStart(); Stopped();
-                Require(engine.PacketsDropped == 0, "No legacy drop path");
-                Console.WriteLine("PASS UIA/native GLOBAL: " + mode + "; no PID/extra consent; START no effect; checkbox; focused Space regression; hotkey subscriber; own TCP; pulse; STOP");
+                Require(Await(receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer.Length == 900, "STOP drains own UDP");
+                Await(Task.Delay(40)); Require(receiver.Available == 0 && engine.PacketsDropped == 0, "No duplication or intentional loss");
+                Console.WriteLine("PASS outbound-only UIA/native: " + mode + "; no PID; enabled START; ARMADO/PULSO/PARADO; exact outbound; own TCP/UDP; focused Space; STOP drain");
             }
-            vm.DiagnosticCycleDurationMs = 200;
-            foreach (var mode in new[] { DiagnosticMode.InboundBandwidthShaping, DiagnosticMode.CorrelatedInboundJitter, DiagnosticMode.AsymmetricDuplexShaping, DiagnosticMode.ControlledPacketReordering })
+            Select(DiagnosticMode.PacketSizeAwareShaping); ClickStart(); Stopped();
+            Require(status.Text.Contains("Consentimento") && !status.Text.Contains("PID"), "Separate consent, never a target prerequisite");
+            consent.IsChecked = true; Pump(); ClickStart(); Armed();
+            Await(TcpLoopbackProbe()); // Packet Size must leave TCP healthy internally.
+            using (var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
+            using (var sender = new UdpClient())
             {
-                Select(mode, 4); ClickStart(); Stopped();
-                Require(status.Text.Contains("INCOMPATÍVEL"), "GLOBAL refuses incompatible profile visibly");
+                sender.Connect((IPEndPoint)receiver.Client.LocalEndPoint!);
+                InvokeButton(pulse); Require(engine.IsEffectActive && state.Text == "PULSO ATIVO", "Consented Packet Size native pulse");
+                for (byte id = 80; id < 83; id++) { var bytes = new byte[1000]; bytes[0] = id; Await(sender.SendAsync(bytes, bytes.Length)); }
+                Until(() => engine.PacketsThrottled >= 3); ClickStart(); Stopped();
+                var ids = new List<byte>();
+                for (int i = 0; i < 3; i++) ids.Add(Await(receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer[0]);
+                Require(ids.SequenceEqual(new byte[] { 80, 81, 82 }) && engine.PacketsDropped == 0, "Consented size pacing drains once, FIFO within flow, no loss/replay");
+                Await(Task.Delay(40)); Require(receiver.Available == 0, "No duplicated datagram");
             }
-            Select(DiagnosticMode.PacketSizeAwareShaping, 4); ClickStart(); Stopped();
-            Require(status.Text.Contains("Consentimento GLOBAL"), "GLOBAL size separate consent");
-            var consent = controls.OfType<CheckBox>().Single(c => c.Content is string text && text.StartsWith("Consinto: GLOBAL"));
-            consent.IsChecked = true; Pump(); ClickStart();
-            Require(engine.IsRunning && !engine.IsEffectActive && vm.SelectedProcess == null, "GLOBAL size explicit opt-in starts without PID");
-            ClickStart(); Stopped();
-
-            // New child, no existing TCP tuple. Bind before FLOW observation; send
-            // only after START so UDP creation is genuinely discovered by WinDivert.
-            child = Process.Start(new ProcessStartInfo("dotnet")
+            Console.WriteLine("PASS outbound-only UIA/native: PacketSizeAwareShaping; explicit consent; no PID; native UDP pacing and STOP drain; TCP healthy");
+            foreach (var oldFilter in Enum.GetValues<FilterMode>())
             {
-                ArgumentList = { Assembly.GetExecutingAssembly().Location, "--udp-peer", "0", "exclusive" },
-                RedirectStandardOutput = true, RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true
-            })!;
-            string? line = Await(child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)));
-            int port = int.Parse(line!);
-            var ownChild = new ProcessInfo { ProcessId = (uint)child.Id, ProcessName = "private-test-name" };
-            vm.Processes.Add(ownChild);
-            foreach (var mode in ModeCatalog.Choices.Values)
-            {
-                targets.SelectedItem = null; Select(mode, 0); ClickStart(); Stopped();
-                if (PacketEngine.ProfileCompatibilityError(mode, FilterMode.Outbound) != null)
-                {
-                    Require(status.Text.Contains("INCOMPATÍVEL"), "Outbound incompatibility does not silently widen scope");
-                    filters.SelectedItem = vm.FilterModeOptions[1]; Pump();
-                }
-                targets.SelectedItem = ownChild; Pump();
-                Require(engine.IsObservingUdp && !engine.IsCaptureRequested, "Selection starts FLOW only");
-                bool experimental = mode == DiagnosticMode.ControlledPacketReordering;
-                if (experimental)
-                {
-                    ClickStart(); Stopped(); Require(status.Text.Contains("Opt-in"), "Explicit experimental refusal");
-                    var optIn = controls.OfType<CheckBox>().Single(c => c.Content is string text && text.StartsWith("Opt-in EXPERIMENTAL"));
-                    optIn.IsChecked = true; Pump();
-                }
-                ClickStart();
-                Require(engine.IsCaptureRequested && !engine.IsRunning && Equals(start.Content, "STOP") && vm.StatusText == "AGUARDANDO", "START waits honestly for exact tuple: " + mode);
-                Require(engine.ArmedScopeProfile == (PacketEngine.IsScopedProfile(mode) ? mode : DiagnosticMode.None) && engine.ConfiguredFilterMode == (PacketEngine.ProfileCompatibilityError(mode, FilterMode.Outbound) == null ? FilterMode.Outbound : FilterMode.AllTraffic), "START applied selected scope profile and filter");
-                ClickStart(); Stopped(); // STOP cancels wait through actual UIA.
-                ClickStart();
-                using var client = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
-                client.Connect(IPAddress.Loopback, port);
-                Await(client.SendAsync(new byte[] { 41 }, 1));
-                Require(Await(client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer.SequenceEqual(new byte[] { 41 }), "Own child UDP reaches peer");
-                Until(() => engine.IsRunning && engine.ScopeStatus.UdpScoped > 0);
-                Until(() => status.Text.Contains("ARMADA")); // UI telemetry is intentionally polled at 250 ms.
-                Require(engine.CurrentFilter.Contains("udp.SrcPort == " + port) && engine.CurrentFilter.Contains("udp.DstPort == " + port), "Exact child tuple, not just a broad port");
-                Require(engine.ActiveDiagnosticMode == DiagnosticMode.None && engine.PacketsThrottled == 0, "No effect at START");
-                InvokeButton(pulse); Require(engine.IsEffectActive, "Selected scoped effect activates only on pulse");
-                // One pending packet; STOP drains it once, with no replay or drop.
-                byte[] bytes = new byte[900]; bytes[0] = 42;
-                Await(client.SendAsync(bytes, bytes.Length));
-                Until(() => engine.PacketsThrottled > 0);
-                ClickStart(); Stopped();
-                Require(Await(client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer[0] == 42, "STOP drains own packet");
-                Await(Task.Delay(50)); Require(client.Available == 0 && engine.PacketsDropped == 0, "No duplicate/replay/loss");
-                Console.WriteLine("PASS UIA/native PID: " + mode + "; exact FLOW -> NETWORK; wait/STOP; pulse/drain; no duplicates");
+                store.Save(new AppSettings { FilterMode = oldFilter, DiagnosticMode = DiagnosticMode.DualTokenBucket, DiagnosticDurationMs = 175, OnlyTargetForeground = true });
+                byte[] before = File.ReadAllBytes(store.FilePath); vm.LoadSettings(); Pump();
+                Require(!engine.IsCaptureRequested && vm.SelectedProcess == null && vm.DiagnosticCycleDurationMs == 175, "Old scope migration never auto-starts or overrides duration");
+                enabled.IsChecked = true; Pump(); ClickStart(); Armed(); ClickStart(); Stopped();
+                Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Real START/STOP does not rewrite old scoped settings");
+                Console.WriteLine("PASS outbound-only old scope UIA/native: " + oldFilter + "; no target; read-only migration; START/STOP");
             }
-            // Inject only a native OPEN refusal, never a fabricated success.
-            targets.SelectedItem = null; Select(DiagnosticMode.DualTokenBucket, 4);
+            foreach (var hidden in ModeCatalog.Choices.Values.Except(ModeCatalog.OutboundChoices.Values))
+            {
+                store.Save(new AppSettings { DiagnosticMode = hidden, FilterMode = FilterMode.AllTraffic, DiagnosticDurationMs = 250 });
+                byte[] before = File.ReadAllBytes(store.FilePath); vm.LoadSettings(); Pump();
+                Require(effects.SelectedItem == null && vm.SettingsStatus.Contains("indisponível"), "Hidden saved mode needs deliberate replacement");
+                ClickStart(); Stopped(); Require(status.Text.Contains("INCOMPATÍVEL"), "No fake global equivalent or unsafe reordering");
+                Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Hidden configuration remains untouched");
+            }
+            Select(DiagnosticMode.DualTokenBucket);
+            vm.CustomFilterText = "203.0.113.88:4567 secret-token";
             foreach (int code in new[] { 2, 5, 87, 577 })
             {
-                engine.NetworkOpenFailureOverride = _ => code;
+                engine.NetworkOpenFailureOverride = f => { Require(f == "outbound", "Custom/legacy config cannot widen applied filter"); return code; };
                 ClickStart(); Stopped();
-                Require(status.Text.Contains("Win32 " + code), "Native failure visible with exact code");
-                Require(vm.SupportDiagnosticText.Contains("Win32=" + code), "Copy diagnostics retain native code");
+                Require(status.Text.Contains("Win32 " + code) && vm.SupportDiagnosticText.Contains("Win32=" + code), "Native failure exact code remains visible/copiable");
             }
             engine.NetworkOpenFailureOverride = null;
-            var copy = (Button)window.FindName("CopyDiagnosticButton");
-            InvokeButton(copy);
-            Require(Clipboard.GetText() == vm.SupportDiagnosticText, "Clipboard read-back matches explicitly clicked redacted diagnostic");
-            Require(!Clipboard.GetText().Contains("private-test-name") && !Clipboard.GetText().Contains("127.0.0.1"), "Clipboard excludes identity/endpoints");
-            Require(vm.Logs.Any(l => l.Contains("START PRESSED")) && vm.Logs.Any(l => l.Contains("START RESULT")), "Visible START attempt trail");
-            Console.WriteLine("PASS native UI: real UIA InvokePattern START/STOP, ranked ComboBox bindings, all nine selections, Win32 failure injection, redacted Clipboard read-back. Physical keyboard and user's PC NOT tested; native non-loopback inbound NOT tested.");
+            InvokeButton((Button)window.FindName("CopyDiagnosticButton"));
+            Require(Clipboard.GetText() == vm.SupportDiagnosticText, "Explicit Clipboard read-back");
+            Require(!Clipboard.GetText().Contains("203.0.113") && !Clipboard.GetText().Contains("secret-token") && !Clipboard.GetText().Contains("PID") && !Clipboard.GetText().Contains("FLOW"), "No sensitive values or target prerequisites in support text");
+            Console.WriteLine("PASS outbound-only native UI: all five exposed effects; real UIA START/STOP without target; read-only legacy migration; hidden modes refused; Win32 failure injection; Clipboard. Physical keyboard and user's PC NOT tested.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
         finally
         {
             window?.Close(); Pump();
-            if (child != null) { if (!child.HasExited) child.Kill(entireProcessTree: true); child.WaitForExit(); child.Dispose(); }
+
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
     }

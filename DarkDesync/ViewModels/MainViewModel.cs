@@ -11,6 +11,8 @@ namespace DarkDesync.ViewModels;
 public sealed class MainViewModel : ViewModelBase, IDisposable
 {
     private readonly SettingsStore _settingsStore;
+    private readonly bool _outboundOnly;
+    private DiagnosticMode? _unavailableSavedMode;
     private readonly ProcessService _processService;
     public ObservableCollection<string> ThrottleModeOptions { get; } = new() { "No atalho / ciclo", "Contínuo (captura ligada)" };
     private bool _cycleProfileEnabled = true;
@@ -71,6 +73,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get => _selectedFilterModeText;
         set
         {
+            if (_outboundOnly && value != FilterModeOptions[4]) return;
             if (SetProperty(ref _selectedFilterModeText, value))
             {
                 GlobalPacketSizeConsent = false;
@@ -114,6 +117,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get => _selectedProcess;
         set
         {
+            if (_outboundOnly && value != null) return;
             if (SetProperty(ref _selectedProcess, value))
             {
                 _controller.TargetProcess = value;
@@ -290,7 +294,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     // Diagnostic mode selection
     private string _selectedDiagnosticModeText = ModeCatalog.Name(DiagnosticMode.OutboundFreeze);
-    public List<string> DiagnosticModeOptions { get; } = ModeCatalog.Choices.Keys.ToList();
+    public List<string> DiagnosticModeOptions { get; }
     public bool IsExperimentalSelected => ModeCatalog.Parse(_selectedDiagnosticModeText) == DiagnosticMode.ControlledPacketReordering;
     private bool _experimentalOptIn;
     public bool ExperimentalOptIn
@@ -310,12 +314,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get => _selectedDiagnosticModeText;
         set
         {
-            if (!ModeCatalog.TryParse(value, out var selectedMode)) return;
+            if (value == null || !ModeCatalog.TryParse(value, out var selectedMode)) return;
+            if (_outboundOnly && !ModeCatalog.OutboundChoices.Values.Contains(selectedMode)) return;
             value = ModeCatalog.Name(selectedMode);
             bool scopeChanges = PacketEngine.IsScopedProfile(ModeCatalog.Parse(value)) ||
                 PacketEngine.IsScopedProfile(ModeCatalog.Parse(_selectedDiagnosticModeText));
             if (SetProperty(ref _selectedDiagnosticModeText, value))
             {
+                if (_unavailableSavedMode != null)
+                    SettingsStatus = "Efeito Outbound selecionado. O arquivo antigo só será alterado ao Salvar.";
+                _unavailableSavedMode = null;
                 CancelCurrentPulse();
                 ExperimentalOptIn = false;
                 GlobalPacketSizeConsent = false;
@@ -413,6 +421,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get => _onlyTargetForeground;
         set
         {
+            if (_outboundOnly) value = false;
             if (SetProperty(ref _onlyTargetForeground, value))
             {
                 if (value && SelectedProcess != null)
@@ -512,6 +521,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         get
         {
             var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
+            if (_outboundOnly) return $"Outbound · todos os aplicativos\n{(s.Running ? "Captura ARMADA" : "Captura parada")} • pulso: {DiagnosticCycleDurationMs} ms\nIntercepções: {_packetEngine?.PacketsIntercepted ?? 0} • retidos: {_packetEngine?.PacketsThrottled ?? 0} • perdas intencionais: {_packetEngine?.PacketsDropped ?? 0}";
             if (IsLegacyGlobalSelected) return $"GLOBAL — TODOS OS APLICATIVOS • {(s.Running ? (_packetEngine!.IsEffectActive ? "PULSO ATIVO" : "ARMADO / sem efeito") : "STOP / parado")}\nEfeito selecionado: {SelectedDiagnosticModeText} • pulso: {DiagnosticCycleDurationMs} ms" +
                 (IsGlobalDelayVisible ? $" • retenção por pacote: {GlobalDelayMs} ms" : "") +
                 $"\n{s.Reason}\n{_packetEngine?.ProtocolCounters}";
@@ -521,10 +531,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string ScopedTuplesText => (_packetEngine?.ScopeStatus.Tuples ?? "") + "\nNETWORK: " + (_packetEngine?.ScopeStatus.Filter ?? "false");
 
     private string? _startError;
-    private string _startStatusText = "Selecione o processo e pressione START. Captura parada.";
+    private string _startStatusText = "Captura parada. START arma Outbound para todos os aplicativos.";
     public string StartStatusText { get => _startStatusText; private set => SetProperty(ref _startStatusText, value); }
+    public string CaptureStateText => _packetEngine?.IsRunning == true
+        ? (_packetEngine.IsEffectActive ? "PULSO ATIVO" : "ARMADO / ATIVO")
+        : _packetEngine?.IsCaptureRequested == true ? "AGUARDANDO" : "PARADO / PAUSADO";
 
-    private string? CompatibilityError => PacketEngine.ProfileCompatibilityError(ModeCatalog.Parse(SelectedDiagnosticModeText), GetFilterMode());
+    private string? CompatibilityError => _outboundOnly
+        ? (_unavailableSavedMode != null || !ModeCatalog.OutboundChoices.Values.Contains(ModeCatalog.Parse(SelectedDiagnosticModeText))
+            ? "Efeito salvo INCOMPATÍVEL com Outbound puro. Selecione um efeito disponível; a configuração antiga foi preservada." : null)
+        : PacketEngine.ProfileCompatibilityError(ModeCatalog.Parse(SelectedDiagnosticModeText), GetFilterMode());
     public bool IsGlobalPacketSizeSelected => IsLegacyGlobalSelected && ModeCatalog.Parse(SelectedDiagnosticModeText) == DiagnosticMode.PacketSizeAwareShaping;
     private bool _globalPacketSizeConsent;
     public bool GlobalPacketSizeConsent
@@ -548,7 +564,20 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(NetworkDiagnosticsText));
         OnPropertyChanged(nameof(ScopedTuplesText));
         OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(CaptureStateText));
         var s = _packetEngine.ScopeStatus;
+        if (_outboundOnly)
+        {
+            FilterStatusText = "Outbound · todos os aplicativos";
+            StartStatusText = _startError ?? CompatibilityError ??
+                (IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent
+                    ? "Consentimento obrigatório para Packet Size-Aware em todos os aplicativos: afeta apenas datagramas IPv4 de saída; os demais tráfegos passam sem efeito."
+                    : s.Running ? (_packetEngine.IsEffectActive ? "Pulso ativo. " : "Captura ARMADA, sem efeito. Espaço ou Pulso manual dispara o efeito. ") + "Outbound · todos os aplicativos."
+                    : "Captura parada. START arma Outbound para todos os aplicativos, sem aplicar efeito; STOP encerra e libera pacotes retidos.");
+            if (!CycleProfileEnabled) StartStatusText += " Marque Habilitado para permitir o pulso; START somente arma.";
+            if (_startError != null) StartStatusText += " Confira os arquivos extraídos junto do EXE e a execução como Administrador; clique Copiar diagnóstico para suporte. Não desative proteções do sistema.";
+            return;
+        }
         FilterStatusText = IsLegacyGlobalSelected ? "Outbound global" : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}";
         StartStatusText = _startError ?? CompatibilityError ??
             (IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent
@@ -619,6 +648,16 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     {
         var s = _packetEngine?.ScopeStatus ?? CaptureScopeStatus.Empty;
         var native = System.Text.RegularExpressions.Regex.Match(s.Reason, @"Win32\s+(\d+)");
+        if (_outboundOnly)
+        {
+            string outboundReason = CompatibilityError != null ? "Efeito salvo incompatível com Outbound puro" :
+                IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent ? "Consentimento Packet Size-Aware ausente" :
+                native.Success ? "Falha WinDivert; consultar código Win32" :
+                s.Running ? "ARMADO" : _startError != null ? "START recusado; detalhe local omitido por privacidade" : "PARADO";
+            return $"scope=Outbound · todos os aplicativos; appliedFilter={_packetEngine?.ConfiguredFilterMode}; mode={_unavailableSavedMode ?? ModeCatalog.Parse(SelectedDiagnosticModeText)}; pulseMs={DiagnosticCycleDurationMs}; enabled={CycleProfileEnabled}\n" +
+                $"packetSizeConsent={GlobalPacketSizeConsent}; requested={_packetEngine?.IsCaptureRequested ?? false}; running={_packetEngine?.IsRunning ?? false}; Win32={(native.Success ? native.Groups[1].Value : "none")}\n" +
+                $"reason={outboundReason}; intercepted={_packetEngine?.PacketsIntercepted ?? 0}; held={_packetEngine?.PacketsThrottled ?? 0}; intentionalLoss={_packetEngine?.PacketsDropped ?? 0}";
+        }
         string reason = CompatibilityError != null ? "INCOMPATÍVEL: direção/escopo do efeito" :
             IsGlobalPacketSizeSelected && !GlobalPacketSizeConsent ? "Consentimento GLOBAL UDP ausente" :
             !IsLegacyGlobalSelected && SelectedProcess is not { ProcessId: > 0 } ? "PID obrigatório ausente" :
@@ -652,7 +691,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         DesyncController controller,
         PacketEngine? packetEngine = null,
         SettingsStore? settingsStore = null)
+        : this(processService, hotkeyService, controller, packetEngine, settingsStore, outboundOnly: true) { }
+
+    // Only the regression harness can select legacy strict control-plane behavior.
+    // MainWindow always uses the public outbound-only constructor.
+    internal MainViewModel(ProcessService processService, HotkeyService hotkeyService,
+        DesyncController controller, PacketEngine? packetEngine, SettingsStore? settingsStore, bool outboundOnly)
     {
+        _outboundOnly = outboundOnly;
+        DiagnosticModeOptions = (outboundOnly ? ModeCatalog.OutboundChoices : ModeCatalog.Choices).Keys.ToList();
         _processService = processService;
         _hotkeyService = hotkeyService;
         _controller = controller;
@@ -755,7 +802,14 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _statsTimer.Start(); // One low-priority snapshot poll, never dispatch per packet.
 
         // Populate initial process list
-        RefreshProcessList();
+        if (_outboundOnly)
+        {
+            _selectedFilterModeText = FilterModeOptions[4];
+            _onlyTargetForeground = false;
+            SettingsStatus = "Outbound afeta TODOS os aplicativos. START só arma; Espaço aplica o pulso. Salvar é explícito.";
+            ApplyFilterMode();
+        }
+        else RefreshProcessList();
 
         // Only START opens capture; hotkey/manual pulse requires an armed engine.
 
@@ -811,6 +865,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     private FilterMode GetFilterMode()
     {
+        if (_outboundOnly) return FilterMode.LegacyGlobalOutbound;
         return SelectedFilterModeText switch
         {
             "Saída do alvo (IPv4, TCP/UDP)" => FilterMode.Outbound,
@@ -942,7 +997,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             var settings = _settingsStore.Load();
             ApplySettings(settings);
             bool migrated = !ModeCatalog.Choices.Values.Contains(settings.DiagnosticMode);
-            SettingsStatus = migrated
+            SettingsStatus = _outboundOnly
+                ? (_unavailableSavedMode != null
+                    ? $"Efeito salvo {_unavailableSavedMode.Value} indisponível em Outbound puro. Escolha um efeito disponível. Arquivo original intacto."
+                    : "Configuração carregada sem alterar o arquivo. Interface Outbound · todos os aplicativos; captura parada.")
+                : migrated
                 ? "Efeito antigo → Outbound Freeze. Arquivo original mantido até Salvar."
                 : "Configuração carregada · captura parada.";
         }
@@ -966,9 +1025,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 BurstLossPercentage = BurstLossPercentage,
                 AsymmetricInboundPercentage = AsymmetricInboundLossPercentage,
                 AsymmetricOutboundPercentage = AsymmetricOutboundLossPercentage,
-                DiagnosticMode = ModeCatalog.Parse(_selectedDiagnosticModeText)
+                DiagnosticMode = _unavailableSavedMode ?? ModeCatalog.Parse(_selectedDiagnosticModeText)
             });
-            SettingsStatus = "Configuração salva. O alvo deve ser selecionado novamente.";
+            SettingsStatus = _outboundOnly ? "Configuração salva. Captura Outbound só inicia por START." : "Configuração salva. O alvo deve ser selecionado novamente.";
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         { SettingsStatus = $"Não foi possível salvar: {ex.Message}"; }
@@ -1001,7 +1060,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         };
         // Legacy fields stay serializable, but cannot activate hidden loss/throttle paths.
         // Load never writes the source file; the UI reports the safe effect migration.
-        SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);
+        _unavailableSavedMode = _outboundOnly && s.DiagnosticMode != DiagnosticMode.None && !ModeCatalog.OutboundChoices.Values.Contains(s.DiagnosticMode)
+            ? s.DiagnosticMode : null;
+        if (_unavailableSavedMode != null)
+        {
+            _selectedDiagnosticModeText = _unavailableSavedMode.Value.ToString();
+            OnPropertyChanged(nameof(SelectedDiagnosticModeText));
+            OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
+        }
+        else SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);
         CustomFilterText = s.CustomFilter;
         ApplyFilterMode();
         SettingsStatus = "Padrões restaurados • captura parada. Salve para manter.";
@@ -1009,6 +1076,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public void RefreshProcessList()
     {
+        if (_outboundOnly) return;
         var list = _processService.GetWindowedProcesses();
         Processes.Clear();
         foreach (var p in list)

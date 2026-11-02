@@ -25,6 +25,11 @@ public static class ModeCatalog
         PersonalRanking250ms.Concat(LegacyLabels.Values.Except(PersonalRanking250ms))
             .ToDictionary(Label, mode => mode);
 
+    // Keep legacy identities/parser, but expose only genuine global outbound effects.
+    public static IReadOnlyDictionary<string, DiagnosticMode> OutboundChoices { get; } =
+        Choices.Where(p => PacketEngine.ProfileCompatibilityError(p.Value, FilterMode.LegacyGlobalOutbound) == null)
+            .ToDictionary(p => p.Key, p => p.Value);
+
     private static string Label(DiagnosticMode mode)
     {
         int rank = PersonalRanking250ms.ToList().IndexOf(mode);
