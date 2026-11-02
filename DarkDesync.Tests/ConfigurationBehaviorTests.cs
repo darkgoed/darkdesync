@@ -9,7 +9,7 @@ using Xunit;
 namespace DarkDesync.Tests;
 public sealed class ConfigurationBehaviorTests
 {
-    internal static void WithVm(Action<MainViewModel, PacketEngine, DesyncController, string> action)
+    internal static void WithVm(Action<MainViewModel, PacketEngine, DesyncController, string> action, bool outboundOnly = false)
     {
         Exception? failure = null;
         var thread = new Thread(() =>
@@ -23,7 +23,7 @@ public sealed class ConfigurationBehaviorTests
                     new FlowTracker(NullLogger<FlowTracker>.Instance), state);
                 using var controller = new DesyncController(NullLogger<DesyncController>.Instance, state, engine);
                 using var vm = new MainViewModel(new ProcessService(NullLogger<ProcessService>.Instance),
-                    new HotkeyService(NullLogger<HotkeyService>.Instance), controller, engine, new SettingsStore(Path.Combine(dir, "settings.json")));
+                    new HotkeyService(NullLogger<HotkeyService>.Instance), controller, engine, new SettingsStore(Path.Combine(dir, "settings.json")), outboundOnly);
                 action(vm, engine, controller, dir);
             }
             catch (Exception ex) { failure = ex; }
