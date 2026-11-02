@@ -38,5 +38,13 @@ public enum DiagnosticMode
     CorrelatedInboundJitter = 19,
     PacketSizeAwareShaping = 20,
     AsymmetricDuplexShaping = 21,
-    ControlledPacketReordering = 22
+    ControlledPacketReordering = 22,
+    TimeSlotBursting = 23,
+    SawtoothPacing = 24,
+    CorrelatedOutboundJitter = 25,
+    TwoPhaseDrain = 26,
+    HeavyTailJitter = 27,
+    AdaptiveQueueShaping = 28,
+    GapBasedReordering = 29,
+    GilbertElliottBurstLoss = 30
 }

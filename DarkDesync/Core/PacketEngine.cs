@@ -619,6 +619,12 @@ public sealed class PacketEngine : IDisposable
     private long _effectStartedTicks;
     private long _shapingFinishTicks;
     private PulseShaper? _pulseShaper;
+    private OutboundPulseScheduler? _outboundScheduler;
+    internal int? OutboundSeedOverride { get; set; }
+    private long _intentionalBurstDrops, _scheduledReleased;
+    public long IntentionalBurstDrops => Interlocked.Read(ref _intentionalBurstDrops);
+    public long ScheduledPacketsReleased => Interlocked.Read(ref _scheduledReleased);
+    public double AdaptiveTargetBytesPerSecond { get { lock (_packetLock) return _outboundScheduler?.TargetBytesPerSecond ?? 0; } }
     private ScopedPulseScheduler? _scopedScheduler;
     private DiagnosticMode _armedScopeProfile;
     internal DiagnosticMode ArmedScopeProfile { get { lock (_lifecycleLock) return _armedScopeProfile; } }
@@ -747,6 +753,8 @@ public sealed class PacketEngine : IDisposable
             _shapingFinishTicks = _effectStartedTicks;
             _effectDeadline = _effectStartedTicks + (long)duration * Stopwatch.Frequency / 1000;
             _pulseShaper = PulseShaper.Handles(mode) ? new PulseShaper(mode, _effectStartedTicks, _effectDeadline) : null;
+            _outboundScheduler = OutboundPulseScheduler.Handles(mode)
+                ? new OutboundPulseScheduler(mode, _effectStartedTicks, _effectDeadline, OutboundSeedOverride ?? Random.Shared.Next()) : null;
             _scopedScheduler = IsScopedProfile(mode) ? new ScopedPulseScheduler(mode, _effectStartedTicks) : null;
             LastShapingFallback = null;
             _activeDiagnosticMode = mode;
@@ -1074,6 +1082,9 @@ public sealed class PacketEngine : IDisposable
             }
 
             // Diagnostic Mode evaluation: restricted strictly to authorized test traffic
+            if (active && _armedCapture && _outboundScheduler != null)
+                return ProcessOutboundScheduledPacket(packetBuffer, recvLen, addr);
+
             if (!_stopping && active && _activeDiagnosticMode != DiagnosticMode.None)
             {
                 switch (_activeDiagnosticMode)
@@ -1455,6 +1466,36 @@ public sealed class PacketEngine : IDisposable
         return sourcePort != 0 && destinationPort != 0;
     }
 
+    private bool ProcessOutboundScheduledPacket(IntPtr buffer, uint length, WinDivertNative.Address native)
+    {
+        // Explicit support: validated, unfragmented IPv4 TCP/UDP. IPv6 (including
+        // extension headers), ICMP, fragments and injected packets pass unchanged.
+        if (!native.Outbound || native.Impostor || length < 20 || Marshal.ReadByte(buffer, 0) >> 4 != 4 ||
+            !TryExtractIpAndPorts(buffer, length, out var source, out var destination, out var sp, out var dp))
+        { RecordSend(SendPacket(buffer, length, native)); return false; }
+        byte protocol = Marshal.ReadByte(buffer, 9);
+        var flow = new PulseShaper.Flow(protocol, source!.ToString(), sp, destination!.ToString(), dp);
+        if (length > 1536)
+        {
+            LastShapingFallback = "Outbound: oversized packet; fail-open pulse cancellation";
+            CancelArmedEffectLocked(); RecordSend(SendPacket(buffer, length, native)); return false;
+        }
+        var data = new byte[length]; Marshal.Copy(buffer, data, 0, (int)length);
+        var packet = new ThrottledPacket { Data = data, Length = length, Address = native, TimestampTicks = _timestamp() };
+        switch (_outboundScheduler!.Enqueue(packet, flow, packet.TimestampTicks))
+        {
+            case OutboundPulseScheduler.Decision.Held:
+                Interlocked.Increment(ref _packetsThrottled); return true;
+            case OutboundPulseScheduler.Decision.Drop:
+                Interlocked.Increment(ref _intentionalBurstDrops);
+                Interlocked.Increment(ref _packetsDropped); return true;
+            case OutboundPulseScheduler.Decision.Overflow:
+                LastShapingFallback = "Outbound: bounded queue/flow/bytes exceeded; fail-open pulse cancellation";
+                CancelArmedEffectLocked(); break;
+        }
+        RecordSend(SendPacket(buffer, length, native)); return false;
+    }
+
     private bool ProcessScopedPacket(IntPtr buffer, uint length, WinDivertNative.Address native, bool active)
     {
         // Same-handle reinjection cannot be recaptured; refuse other injectors too.
@@ -1670,6 +1711,13 @@ public sealed class PacketEngine : IDisposable
         lock (_packetLock)
         {
             ExpireArmedEffectLocked();
+            if (_outboundScheduler != null)
+            {
+                long before = _outboundScheduler.ReorderedPairs;
+                bool ready = _outboundScheduler.TryDequeue(now, out var outboundPacket);
+                Interlocked.Add(ref _reorderedPairs, _outboundScheduler.ReorderedPairs - before);
+                if (ready) { Interlocked.Increment(ref _scheduledReleased); SendThrottledPacket(outboundPacket!); return true; }
+            }
             if (_pulseShaper != null && _pulseShaper.TryDequeue(now, out var shaped))
             {
                 SendThrottledPacket(shaped!);
@@ -1713,6 +1761,12 @@ public sealed class PacketEngine : IDisposable
 
     private void FlushThrottleQueueLocked()
     {
+        if (_outboundScheduler != null)
+        {
+            foreach (var packet in _outboundScheduler.Drain())
+            { Interlocked.Increment(ref _scheduledReleased); SendThrottledPacket(packet); }
+            _outboundScheduler = null;
+        }
         if (_scopedScheduler != null)
         {
             foreach (var scoped in _scopedScheduler.Drain()) SendThrottledPacket(scoped);
