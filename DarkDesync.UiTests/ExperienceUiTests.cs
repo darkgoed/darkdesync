@@ -2,6 +2,8 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using DarkDesync;
 using DarkDesync.Core;
 using DarkDesync.Services;
@@ -12,7 +14,10 @@ internal static partial class Program
     private static void VerifyExperienceUi(MainWindow window, MainViewModel vm, SettingsStore store, PacketEngine engine)
     {
         var effects = (ComboBox)window.FindName("EffectSelector");
-        var styles = (ComboBox)window.FindName("PulseStyleSelector");
+        var legit = (RadioButton)window.FindName("LegitStyleButton");
+        var aggressive = (RadioButton)window.FindName("AggressiveStyleButton");
+        var manual = (CheckBox)window.FindName("ManualDurationToggle");
+        void Select(RadioButton button) { ((ISelectionItemProvider)new RadioButtonAutomationPeer(button).GetPattern(PatternInterface.SelectionItem)).Select(); Pump(); }
         var chip = (Border)window.FindName("EffectRatingChip");
         var label = (TextBlock)window.FindName("EffectRatingLabel");
         var note = (TextBlock)window.FindName("EffectRatingNote");
@@ -25,8 +30,8 @@ internal static partial class Program
             Require(note.Text.Contains("Avaliação pessoal") && note.Text.Contains(ms + " ms"), "Subjective rating explicitly tied to exact duration");
             Require(!engine.IsCaptureRequested && !engine.IsEffectActive, "Style/rating never starts capture or pulse");
         }
-        effects.SelectedItem = ModeCatalog.Name(DiagnosticMode.OutboundFreeze); styles.SelectedItem = "Legítimo"; Check("Legítimo", "#14532D", 250);
-        styles.SelectedItem = "Agressivo"; Check("Agressivo", "#7F1D1D", 800); Require(note.Text.Contains("injogável"), "Freeze 800ms warning remains selectable");
+        effects.SelectedItem = ModeCatalog.Name(DiagnosticMode.OutboundFreeze); Select(legit); Check("Legit", "#14532D", 250);
+        Select(aggressive); Check("Agressivo", "#7F1D1D", 800); Require(note.Text.Contains("injogável"), "Freeze 800ms warning remains selectable");
         foreach (var mode in ModeCatalog.OutboundChoices.Values)
         {
             effects.SelectedItem = ModeCatalog.Name(mode); Pump();
@@ -34,13 +39,16 @@ internal static partial class Program
             Require(Equals(effects.SelectedItem, ModeCatalog.Name(mode)), "Changing style/rating must never substitute the effect");
         }
         effects.SelectedItem = ModeCatalog.Name(DiagnosticMode.FlowAwareShaping); Check("Equilibrado", "#78350F", 800);
-        styles.SelectedItem = "Equilibrado"; Pump(); Require(vm.DiagnosticCycleDurationMs == 800, "Balanced doesn't invent a fixed duration");
-        slider.Value = 317; Check("Não testado", "#374151", 317); Require(vm.SelectedPulseStyle == "Equilibrado", "Balanced remains adjustable");
-        styles.SelectedItem = "Legítimo"; Pump(); slider.Value = 275; Check("Não testado", "#374151", 275); Require(vm.SelectedPulseStyle == "Personalizado", "Manual edit overrides fixed preset explicitly");
-        effects.SelectedItem = ModeCatalog.Name(DiagnosticMode.OutboundFreeze); styles.SelectedItem = "Agressivo"; Pump();
+        Require(vm.PulseStyleOptions.SequenceEqual(new[] { "Legit", "Agressivo" }), "Exactly two primary presets, Balanced is classification only");
+        Require(!slider.IsEnabled && !editor.IsEnabled, "Fixed preset fields are read-only");
+        manual.IsChecked = true; Pump(); slider.Value = 317; Check("Não avaliado", "#374151", 317);
+        Require(vm.SelectedPulseStyle == "Teste manual", "Manual adjustment requires explicit choice");
+        Select(legit); Check("Não avaliado", "#374151", 250);
+        manual.IsChecked = true; Pump(); slider.Value = 275; Check("Não avaliado", "#374151", 275);
+        effects.SelectedItem = ModeCatalog.Name(DiagnosticMode.OutboundFreeze); Select(aggressive); Pump();
         vm.SaveSettingsCommand.Execute(null); byte[] before = File.ReadAllBytes(store.FilePath);
-        styles.SelectedItem = "Legítimo"; Pump(); Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Style changes never write settings");
-        vm.LoadSettings(); Check("Agressivo", "#7F1D1D", 800); Require(Equals(styles.SelectedItem, "Agressivo"), "Saved style recovers through binding");
+        Select(legit); Pump(); Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Style changes never write settings");
+        vm.LoadSettings(); Check("Agressivo", "#7F1D1D", 800); Require(aggressive.IsChecked == true, "Saved style recovers through binding");
         Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Load remains read-only");
         // Open/realize the real popup: covers inherited DataContext across its
         // separate visual tree and pills for every effect, not just selected one.
@@ -53,8 +61,8 @@ internal static partial class Program
             Require(Descendants(container!).OfType<TextBlock>().Any(t => t.Text == expected.Label), "Every dropdown row has correct personal pill");
         }
         effects.IsDropDownOpen = false; Pump(); vm.ResetSettingsCommand.Execute(null); Pump();
-        Check("Não testado", "#374151", 200); Require(Equals(styles.SelectedItem, "Personalizado"), "Defaults retain original 200ms and custom style");
+        Check("Não avaliado", "#374151", 200); Require(manual.IsChecked == true, "Defaults retain original 200ms and custom style");
         Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Defaults don't overwrite settings without Save");
-        Console.WriteLine("PASS personal ratings/styles WPF: all twelve dropdown pills, exact owner observations at 800ms/Freeze250, new effects untested, rendered colors+text, 250/800 presets and adjustable Balanced, slider/editor synchronization, manual Custom override, save/load/defaults read-only and no automatic capture. No objective/gameplay claim.");
+        Console.WriteLine("PASS personal ratings/styles WPF: all twelve dropdown pills, exact owner observations at 800ms/Freeze250, new effects unassessed, rendered colors+text, two 250/800 primary presets, Balanced classification only, explicit manual, slider/editor synchronization, manual mode, save/load/defaults read-only and no automatic capture. No objective/gameplay claim.");
     }
 }

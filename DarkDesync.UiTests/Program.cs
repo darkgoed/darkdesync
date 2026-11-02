@@ -38,16 +38,17 @@ internal static partial class Program
             var status = (TextBlock)window.FindName("StartStatus");
             var enabled = controls.OfType<CheckBox>().Single(c => Equals(c.Content, "Habilitado"));
             Require(window.FindName("PacketSizeConsent") == null, "No redundant per-mode consent UI");
-            Require(controls.OfType<ComboBox>().Count() == 3, "Only effect, duration-style and hotkey selectors; no process/network/protocol picker");
-            Require(((TextBlock)window.FindName("OutboundScope")).Text == "Outbound · todos os aplicativos", "Fixed global scope warning");
+            Require(controls.OfType<ComboBox>().Count() == 2, "Only effect, duration-style and hotkey selectors; no process/network/protocol picker");
+            Require(((TextBlock)window.FindName("OutboundScope")).Text.Contains("GLOBAL"), "Fixed global scope warning");
             Require(!controls.OfType<CheckBox>().Any(c => c.Content is string t && (t.Contains("alvo") || t.Contains("EXPERIMENTAL"))), "No target/experimental controls");
             Require(vm.DiagnosticModeOptions.Count == 12 && vm.DiagnosticModeOptions.SequenceEqual(ModeCatalog.OutboundChoices.Keys) && !vm.DiagnosticModeOptions.Contains("Packet Size-Aware Shaping"), "Twelve genuine outbound effects, personal ranking intact");
             Require(vm.SelectedDiagnosticModeText == ModeCatalog.Name(DiagnosticMode.OutboundFreeze) && Equals(mode.SelectedItem, vm.SelectedDiagnosticModeText), "Reorder must not pick rank 1 by accident");
             Require(vm.DiagnosticCycleDurationMs == 200 && vm.SelectedHotkeyName == "Espaço", "Default pulse/hotkey preserved");
-            Require(vm.IsLegacyGlobalSelected && vm.SelectedProcess == null && !engine.IsCaptureRequested && state.Text == "PARADO / PAUSADO", "Default global is prepared, not auto-started");
-            Require(state.IsVisible && state.FontSize >= 22 && status.IsVisible, "Conspicuous capture state independent of pulse");
+            Require(vm.IsLegacyGlobalSelected && vm.SelectedProcess == null && !engine.IsCaptureRequested && state.Text == "PARADO", "Default global is prepared, not auto-started");
+            Require(state.IsVisible && state.FontSize <= 14 && status.IsVisible, "Conspicuous capture state independent of pulse");
             Require(!vm.NetworkDiagnosticsText.Contains("TCP") && !vm.NetworkDiagnosticsText.Contains("UDP") && !vm.StartStatusText.Contains("PID"), "No protocol/PID prerequisites in the main flow");
             VerifyExperienceUi(window, vm, store, engine);
+            VerifyCompactPanelUi(window, vm, engine, "artifacts/tests/screenshots");
             foreach (string effect in vm.DiagnosticModeOptions)
             {
                 mode.SelectedItem = effect; Pump();
@@ -71,7 +72,7 @@ internal static partial class Program
                 byte[] before = File.ReadAllBytes(store.FilePath); vm.LoadSettings(); Pump();
                 Require(mode.SelectedItem == null && vm.SettingsStatus.Contains("indisponível"), "Hidden saved effect is explicitly incompatible, never silently substituted");
                 InvokeButton(startButton);
-                Require(status.Text.Contains("INCOMPATÍVEL") && state.Text == "PARADO / PAUSADO" && !engine.IsCaptureRequested, "Hidden mode cannot arm global");
+                Require((status.Text.Contains("indisponível") && vm.StartStatusText.Contains("INCOMPATÍVEL")) && state.Text == "PARADO" && !engine.IsCaptureRequested, "Hidden mode cannot arm global");
                 Require(before.SequenceEqual(File.ReadAllBytes(store.FilePath)), "Refusal does not rewrite old settings");
                 vm.SaveSettingsCommand.Execute(null); Require(store.Load().DiagnosticMode == hidden, "Explicit save retains unavailable enum until user chooses a replacement");
                 mode.SelectedItem = ModeCatalog.Name(DiagnosticMode.DualTokenBucket); Pump();
@@ -82,11 +83,11 @@ internal static partial class Program
             {
                 engine.NetworkOpenFailureOverride = filter => { Require(filter == "outbound", "Only literal global outbound reaches native OPEN"); return code; };
                 InvokeButton(startButton);
-                Require(!engine.IsCaptureRequested && !engine.IsRunning && Equals(startButton.Content, "START") && state.Text == "PARADO / PAUSADO", "Driver refusal never claims ACTIVE");
-                Require(status.Text.Contains("Win32 " + code) && status.Text.Contains("Copiar diagnóstico"), "Native code and concrete support instructions");
+                Require(!engine.IsCaptureRequested && !engine.IsRunning && Equals(startButton.Content, "START") && state.Text == "PARADO", "Driver refusal never claims ACTIVE");
+                Require(status.Text.Contains("Win32 " + code) && status.Text.Length < 110, "Native code and concrete support instructions");
             }
             engine.NetworkOpenFailureOverride = null;
-            InvokeButton((Button)window.FindName("CopyDiagnosticButton"));
+            Require(window.FindName("CopyDiagnosticButton") == null, "No diagnostic copy UI"); vm.CopyDiagnosticCommand.Execute(null);
             Require(Clipboard.GetText() == vm.SupportDiagnosticText && !Clipboard.GetText().Contains("PID") && !Clipboard.GetText().Contains("FLOW"), "Explicit Clipboard read-back without target prerequisites");
             Require(errors.Messages.Count == 0, "Binding errors: " + string.Join("; ", errors.Messages));
             window.Close(); Pump();
