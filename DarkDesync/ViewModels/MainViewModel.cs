@@ -72,10 +72,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _selectedFilterModeText, value))
             {
-                // Global legacy defaults to clumsy-style timed lag, never implicit 100% packet loss.
-                // Preserve an effect the user deliberately selected.
-                if (IsLegacyGlobalSelected && _selectedDiagnosticModeText == "Desativado")
-                    SelectedDiagnosticModeText = "Atraso (ms)";
+
                 OnPropertyChanged(nameof(IsLegacyGlobalSelected));
                 OnPropertyChanged(nameof(IsStrictCaptureMode));
                 OnPropertyChanged(nameof(IsGlobalDropVisible));
@@ -290,8 +287,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     }
 
     // Diagnostic mode selection
-    private string _selectedDiagnosticModeText = "Desativado";
-    public List<string> DiagnosticModeOptions { get; } = new() { "Desativado", "Outbound Freeze", "Burst Loss", "Asymmetric Loss", "Atraso (ms)", "Drop (%)" };
+    private string _selectedDiagnosticModeText = "Outbound Freeze";
+    public List<string> DiagnosticModeOptions { get; } = new() { "Outbound Freeze", "Micro-Freeze", "Smooth Delay", "Soft Jitter" };
 
     public string SelectedDiagnosticModeText
     {
@@ -332,8 +329,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    // Diagnostic properties (0–800 ms, default 150 ms)
-    private int _diagnosticCycleDurationMs = 150;
+    // One pulse duration shared by the four visible effects.
+    private int _diagnosticCycleDurationMs = 200;
     public int DiagnosticCycleDurationMs
     {
         get => _diagnosticCycleDurationMs;
@@ -420,7 +417,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string StatusText => State switch
     {
         DesyncStateMachine.State.Idle => "IDLE",
-        DesyncStateMachine.State.Armed => "ARMADO · SEM EFEITO",
+        DesyncStateMachine.State.Armed => "ARMADO",
         DesyncStateMachine.State.Active => "DESYNC ATIVO",
         DesyncStateMachine.State.Restoring => "RESTAURANDO",
         _ => "DESCONHECIDO"
@@ -503,7 +500,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(NetworkDiagnosticsText));
         OnPropertyChanged(nameof(ScopedTuplesText));
         var s = _packetEngine.ScopeStatus;
-        FilterStatusText = $"TCP escopado {s.TcpScoped} • UDP escopado {s.UdpScoped} • {s.Reason}";
+        FilterStatusText = IsLegacyGlobalSelected ? "Outbound global" : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}";
     }
     public string EngineStatusColor => IsEngineRunning ? "#06D6A0" : "#E63946";
 
@@ -729,20 +726,19 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             AddLog("[AVISO] Pressione START antes do Espaço/pulso manual. O atalho não inicia captura.");
             return;
         }
-        if (!CycleProfileEnabled && (IsLegacyGlobalSelected || !ThrottleEnabled)) return;
+        if (!CycleProfileEnabled) return; // Hidden legacy throttle/drop settings never select an effect.
 
-        var diagMode = (CycleProfileEnabled ? _selectedDiagnosticModeText : "Desativado") switch
+        var diagMode = _selectedDiagnosticModeText switch
         {
             "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-            "Burst Loss" => DiagnosticMode.BurstLoss,
-            "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
-            "Atraso (ms)" => DiagnosticMode.LatencyDelay,
-            "Drop (%)" => DiagnosticMode.PacketDrop,
-            _ => DiagnosticMode.None
+            "Micro-Freeze" => DiagnosticMode.MicroFreeze,
+            "Smooth Delay" => DiagnosticMode.SmoothDelay,
+            "Soft Jitter" => DiagnosticMode.SoftJitter,
+            _ => DiagnosticMode.OutboundFreeze
         };
 
         AddLog($"[ACIONAMENTO] {source}; escopo: {(IsLegacyGlobalSelected ? "GLOBAL" : "PID estrito")}; efeito: {diagMode}; duração de pulso configurada: {DiagnosticCycleDurationMs} ms");
-        int duration = IsLegacyModeSelected ? CustomDurationMs : DiagnosticCycleDurationMs;
+        int duration = DiagnosticCycleDurationMs;
         bool cycleStarted = _packetEngine.TriggerArmedEffect(diagMode, duration);
         if (!cycleStarted) AddLog("[AVISO] Não foi possível iniciar ciclo.");
     }
@@ -804,7 +800,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var settings = _settingsStore.Load();
             ApplySettings(settings);
-            SettingsStatus = "Configuração carregada • captura parada.";
+            bool migrated = settings.DiagnosticMode is not (DiagnosticMode.OutboundFreeze or DiagnosticMode.MicroFreeze or DiagnosticMode.SmoothDelay or DiagnosticMode.SoftJitter);
+            SettingsStatus = migrated
+                ? "Efeito antigo → Outbound Freeze. Arquivo original mantido até Salvar."
+                : "Configuração carregada · captura parada.";
         }
         catch (Exception ex) when (ex is System.IO.IOException or System.IO.InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
         { SettingsStatus = $"Não foi possível carregar: {ex.Message}"; }
@@ -829,11 +828,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 DiagnosticMode = _selectedDiagnosticModeText switch
                 {
                     "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-                    "Burst Loss" => DiagnosticMode.BurstLoss,
-                    "Asymmetric Loss" => DiagnosticMode.AsymmetricLoss,
-                    "Atraso (ms)" => DiagnosticMode.LatencyDelay,
-                    "Drop (%)" => DiagnosticMode.PacketDrop,
-                    _ => DiagnosticMode.None
+                    "Micro-Freeze" => DiagnosticMode.MicroFreeze,
+                    "Smooth Delay" => DiagnosticMode.SmoothDelay,
+                    "Soft Jitter" => DiagnosticMode.SoftJitter,
+                    _ => DiagnosticMode.OutboundFreeze
                 }
             });
             SettingsStatus = "Configuração salva. O alvo deve ser selecionado novamente.";
@@ -865,16 +863,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             FilterMode.Custom => FilterModeOptions[3], FilterMode.LegacyGlobalOutbound => FilterModeOptions[4],
             _ => FilterModeOptions[0]
         };
-        // Restore the explicit saved effect AFTER the selection's safe Lag default.
-        // Loading the same settings must not depend on which filter was selected before load.
+        // Legacy fields stay serializable, but cannot activate hidden loss/throttle paths.
+        // Load never writes the source file; the UI reports the safe effect migration.
         SelectedDiagnosticModeText = s.DiagnosticMode switch
         {
             DiagnosticMode.OutboundFreeze => "Outbound Freeze",
-            DiagnosticMode.BurstLoss => "Burst Loss",
-            DiagnosticMode.AsymmetricLoss => "Asymmetric Loss",
-            DiagnosticMode.LatencyDelay => "Atraso (ms)",
-            DiagnosticMode.PacketDrop => "Drop (%)",
-            _ => "Desativado"
+            DiagnosticMode.MicroFreeze => "Micro-Freeze",
+            DiagnosticMode.SmoothDelay => "Smooth Delay",
+            DiagnosticMode.SoftJitter => "Soft Jitter",
+            _ => "Outbound Freeze"
         };
         CustomFilterText = s.CustomFilter;
         ApplyFilterMode();

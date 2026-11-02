@@ -587,6 +587,7 @@ public sealed class PacketEngine : IDisposable
     public long ArmedGeneration => Interlocked.Read(ref _armedGeneration);
     private long _effectGeneration;
     private long _effectDeadline;
+    private long _effectStartedTicks;
     private Timer? _effectTimer;
     public bool IsEffectActive
     {
@@ -629,7 +630,8 @@ public sealed class PacketEngine : IDisposable
             if (_filterMode == FilterMode.LegacyGlobalOutbound && mode == DiagnosticMode.None) return false;
             long generation = ++_effectGeneration;
             int duration = Math.Clamp(durationMs, 0, mode == DiagnosticMode.None && _filterMode != FilterMode.LegacyGlobalOutbound ? 10000 : 800);
-            _effectDeadline = _timestamp() + (long)duration * Stopwatch.Frequency / 1000;
+            _effectStartedTicks = _timestamp();
+            _effectDeadline = _effectStartedTicks + (long)duration * Stopwatch.Frequency / 1000;
             _activeDiagnosticMode = mode;
             _stateMachine.TryActivateArmed();
             _effectTimer?.Dispose();
@@ -982,6 +984,47 @@ public sealed class PacketEngine : IDisposable
                         }
                     }
 
+                    case DiagnosticMode.MicroFreeze:
+                    case DiagnosticMode.SmoothDelay:
+                    case DiagnosticMode.SoftJitter:
+                    {
+                        if (!addr.Outbound)
+                        {
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        // Saturation shortens the oldest hold, never discards or overtakes it.
+                        if (_throttleQueue.Count >= 512 && _throttleQueue.TryDequeue(out var oldest))
+                            SendThrottledPacket(oldest);
+                        if (recvLen > WinDivertNative.MtuMax)
+                        {
+                            FlushThrottleQueueLocked();
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        long now = _timestamp();
+                        long releaseAt;
+                        if (_activeDiagnosticMode == DiagnosticMode.MicroFreeze)
+                        {
+                            long interval = Math.Max(1, 20L * Stopwatch.Frequency / 1000);
+                            releaseAt = _effectStartedTicks + ((now - _effectStartedTicks) / interval + 1) * interval;
+                        }
+                        else
+                        {
+                            int delayMs = _activeDiagnosticMode == DiagnosticMode.SmoothDelay ? 30 : random.Next(8, 25);
+                            releaseAt = now + (long)delayMs * Stopwatch.Frequency / 1000;
+                        }
+                        var data = new byte[recvLen];
+                        Marshal.Copy(packetBuffer, data, 0, (int)recvLen);
+                        _throttleQueue.Enqueue(new ThrottledPacket
+                        {
+                            Data = data, Length = recvLen, Address = addr, TimestampTicks = now,
+                            ReleaseAtTicks = _armedCapture ? Math.Min(releaseAt, _effectDeadline) : releaseAt
+                        });
+                        Interlocked.Increment(ref _packetsThrottled);
+                        return true;
+                    }
+
                     case DiagnosticMode.LatencyDelay:
                     {
                         if (!addr.Outbound || GlobalDelayMs == 0)
@@ -1296,9 +1339,12 @@ public sealed class PacketEngine : IDisposable
 
     private bool IsThrottleEffective => (!_armedCapture || (_stateMachine.Current == DesyncStateMachine.State.Active && _timestamp() < _effectDeadline)) &&
         (!_legacyPulseActive || WithinLegacyDeadline) && (((_activeDiagnosticMode == DiagnosticMode.OutboundFreeze ||
-        _activeDiagnosticMode == DiagnosticMode.LatencyDelay) &&
+        _activeDiagnosticMode == DiagnosticMode.LatencyDelay || IsMinimalTimedEffect) &&
         _stateMachine.Current == DesyncStateMachine.State.Active) || _isThrottleActive ||
         (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active)));
+
+    private bool IsMinimalTimedEffect => _activeDiagnosticMode is DiagnosticMode.MicroFreeze or
+        DiagnosticMode.SmoothDelay or DiagnosticMode.SoftJitter;
 
     private bool TryReleaseNext(long now)
     {
@@ -1311,7 +1357,7 @@ public sealed class PacketEngine : IDisposable
                 if ((!effective || (now >= oldest.ReleaseAtTicks && now >= _nextReleaseTicks)) && _throttleQueue.TryDequeue(out var packet))
                 {
                     SendThrottledPacket(packet);
-                    _nextReleaseTicks = _activeDiagnosticMode == DiagnosticMode.LatencyDelay ? 0 :
+                    _nextReleaseTicks = _activeDiagnosticMode == DiagnosticMode.LatencyDelay || IsMinimalTimedEffect ? 0 :
                         Math.Max(now, _timestamp()) + (long)ThrottleReleaseDelayMs * Stopwatch.Frequency / 1000;
                     return true;
                 }

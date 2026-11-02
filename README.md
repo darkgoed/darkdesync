@@ -1,6 +1,6 @@
 # DarkDesync
 
-Um aplicativo WPF C#/.NET 8 para ensaios de rede em aplicações e serviços autorizados. Fonte canônica: `darkgoed/darkdesync`. `DarkDesync/` é o único aplicativo; `DarkDesync.Tests/` e `DarkDesync.UiTests/` são testes, não versões alternativas. Base inspecionada: commit `8fbb42c`; o `.csproj` não declara versão de produto. O driver incluído é WinDivert 2.2.2 x64, com licença e documentação originais.
+Um aplicativo WPF C#/.NET 8 para ensaios de rede em aplicações e serviços autorizados. Fonte canônica: `darkgoed/darkdesync`. `DarkDesync/` é o único aplicativo; `DarkDesync.Tests/` e `DarkDesync.UiTests/` são testes, não versões alternativas. O driver incluído é WinDivert 2.2.2 x64, com licença e documentação originais.
 
 ## Windows x64
 
@@ -15,31 +15,32 @@ Execute `artifacts/DarkDesync-win-x64/DarkDesync.exe` como administrador para ca
 
 ## Perfil, pulso e ciclo
 
-No escopo estrito, selecione aplicação/janela, filtro e efeito em “Perfil do ciclo”. “Desativado” conserva o perfil legado estrito; os efeitos explícitos substituem essa perda durante o pulso. No GLOBAL, “Desativado” é pass-through, sem perda nem throttle implícitos:
+Selecione alvo/filtro, efeito, duração e atalho. A interface oferece somente quatro efeitos de saída, sem descarte intencional, reordering ou duplicação:
 
 - Outbound Freeze: retém saída; entrada não é retida. Libera a fila na conclusão/cancelamento.
-- Burst Loss: descarta a porcentagem configurada durante o pulso, nas direções permitidas pelo filtro.
-- Asymmetric Loss: porcentagens independentes de entrada/saída. Selecione filtro entrada + saída para atuar nas duas direções.
-- Atraso (ms): retenção por pacote de 0–3000 ms, independente da duração do pulso estrito.
-- Drop (%): descarte explícito de 0–100%; 100% é queda total, não Lag.
+- Micro-Freeze: lotes FIFO liberados em fronteiras de 20 ms desde o início do pulso.
+- Smooth Delay: prazo uniforme de 30 ms desde a captura de cada pacote, limitado pelo fim do pulso.
+- Soft Jitter: prazo aleatório de 8–24 ms por pacote; a fila libera somente pela cabeça, portanto um pacote com prazo menor nunca ultrapassa o anterior. A ordem pode reduzir a variação efetiva.
 
-Para efeitos diagnósticos no escopo estrito, duração do pulso de 0 a 800 ms, padrão 150 ms; 0 não inicia efeito nem captura. Os presets legados conservam suas próprias durações. Não se garante precisão de tempo real no Windows.
+A duração visível é única para os quatro modos: 0–800 ms, padrão 200 ms. 0 desativa o pulso. Os três novos modos usam valores fixos conservadores, sem controles extras. O worker verifica prazos a cada aproximadamente 4 ms; não se garante precisão de tempo real no Windows. Ao vencer/cancelar o pulso, toda a fila é reinjetada FIFO, mesmo para pacotes capturados perto do fim. Entrada não é retida por estes modos.
 
 START apenas arma a captura, SEM efeito, tanto no GLOBAL quanto no estrito. Só depois de START, “Pulso manual” ou o atalho configurado (padrão Espaço) inicia UM ciclo temporizado. Espaço com o motor parado não abre captura. Não existe ciclo periódico/automático. Uma tecla mantida não repete; novos acionamentos durante um ciclo são ignorados. O hook nunca consome a tecla: Espaço continua chegando à aplicação, inclusive para o pulo normal. A opção de foco limita o acionamento à janela selecionada. F6/F7/F8 não são atalhos próprios dos modos.
 
-Ao terminar/cancelar o pulso, libera a fila FIFO e volta ao estado ARMADO, sem efeito, com o mesmo handle de captura. Flags antigas de throttle contínuo e Drop100 não atuam fora do pulso. Trocar efeito cancela o pulso e preserva a captura armada; trocar filtro/alvo exige novo START. “STOP”, carregar/padrões e fechar cancelam o pulso, liberam a fila e encerram a captura. Salvar preserva perfil/efeito, duração, perdas, filtro e atalho em `%LOCALAPPDATA%/DarkDesync/settings.json`; o alvo não é persistido.
+Ao terminar/cancelar o pulso, libera a fila FIFO e volta ao estado ARMADO, sem efeito, com o mesmo handle de captura. Flags antigas de throttle contínuo e Drop100 não selecionam efeitos ocultos. Trocar efeito cancela o pulso e preserva a captura armada; trocar filtro/alvo exige novo START. “STOP”, carregar/padrões e fechar cancelam o pulso, liberam a fila e encerram a captura. Salvar preserva efeito, duração, filtro e atalho em `%LOCALAPPDATA%/DarkDesync/settings.json`; o alvo não é persistido.
+
+Configurações v1 continuam legíveis. Os valores numéricos do enum legado foram preservados; os novos são acrescentados. Ao carregar None/Desativado, Burst Loss, Asymmetric Loss, PacketDrop ou LatencyDelay, a seleção migra para Outbound Freeze e informa a migração no status. Duração salva e habilitação/desabilitação são respeitadas, a captura fica parada e o arquivo original NÃO é regravado ao carregar. Campos antigos continuam serializáveis para compatibilidade; apenas Salvar confirma a nova seleção. O painel de retenção, porcentagens de perda e Atraso (ms) não existem mais na interface. APIs legadas internas permanecem para compatibilidade e testes, não são modos disponíveis no combo.
 
 ## Outbound legado GLOBAL — START arma, Espaço dispara o efeito
 
-O Outbound legado usa o filtro WinDivert literal outbound, abrangendo TODOS os aplicativos e suas conexões de saída no Windows. O padrão por processo continua disponível e restrito a PID/FLOW. Selecione “Outbound legado — todos os aplicativos (global)” e o efeito desejado. Pressione START para ARMAR: cada pacote interceptado é reinjetado sem efeito. O botão permanece STOP até a parada explícita. Depois de START, Espaço dispara o efeito escolhido pela duração do pulso (0–800 ms, padrão 150 ms). Ao terminar, libera a fila e volta a passar pacotes SEM fechar/reabrir o handle. Sem checkbox de consentimento adicional. START não tem limite de tempo, mesmo com pulso em 0 ms. Escolher a opção ou pressionar Espaço com motor parado não inicia captura.
+O Outbound legado usa o filtro WinDivert literal `outbound`, abrangendo TODOS os aplicativos e suas conexões de saída no Windows. O padrão por processo continua disponível e restrito a PID/FLOW. Selecione “Outbound legado — todos os aplicativos (global)” e o efeito desejado. START arma sem efeito; Espaço dispara o pulso (padrão 200 ms); ao terminar volta a passar pacotes SEM fechar/reabrir o handle. STOP encerra. START não tem limite de tempo, mesmo com pulso em 0 ms. Escolher a opção ou pressionar Espaço com motor parado não inicia captura.
 
-Com efeito “Desativado”, os pacotes sempre passam sem efeito GLOBAL, inclusive no Espaço, mesmo com configurações antigas de perda 100%, CycleDropEnabled ou throttle. Para descartar durante um pulso, escolha explicitamente “Drop (%)”, “Burst Loss” ou “Asymmetric Loss”. Outbound Freeze RETÉM somente durante o pulso e libera FIFO ao terminar/cancelar ou em STOP/parada de segurança. Asymmetric Loss GLOBAL atua somente na saída; perda de entrada só é aplicável no filtro estrito bidirecional. Espaço nunca liga/desliga a captura. Configurações podem ser salvas, mas captura não inicia automaticamente ao abrir/carregar. Carregar GLOBAL “Desativado” não reativa perda implícita.
+Outbound Freeze conserva seu caminho de retenção original: retém a saída até terminar/cancelar, com liberação FIFO. O limite continua em 512 pacotes; saturação causa STOP de segurança e liberação, não descarte silencioso. Nos três novos modos, uma fila cheia libera o pacote mais antigo antecipadamente para abrir espaço, preservando FIFO, mas abreviando a retenção. Falha de reinjeção é contabilizada como perda e encerra captura por segurança. Não se promete zero perda real: driver, sistema e carga podem causar falhas.
 
-Ao selecionar o Outbound legado com o efeito ainda “Desativado”, a interface passa automaticamente para Atraso (ms) (padrão 150 ms), mas isso NÃO aplica efeito antes do Espaço. Um efeito escolhido explicitamente é preservado. Atraso por pacote (0–3000 ms) e Duração do pulso (0–800 ms) são controles independentes, ambos visíveis no GLOBAL. Cada pacote tem prazo contado desde sua captura dentro do pulso; ao terminar o pulso, todos os retidos são liberados mesmo se o atraso configurado for maior. Alterar o atraso recalcula a fila pendente desde a captura original: 3000→50 ms libera os que já esperaram 50 ms, sem ultrapassagens; 0 ms libera a fila. O espaçamento de throttle não é somado ao Lag. Fila limitada a 512: no Lag/throttle, o mais antigo é liberado para abrir espaço, preservando FIFO, com possível atraso menor sob saturação. No Freeze, exceder o limite causa STOP de segurança e liberação, nunca descarte silencioso. Atraso real depende do agendamento do Windows; não equivale necessariamente à latência exibida pelo Roblox.
+O diagnóstico detalhado e eventos de erro continuam em expansores; a opção do filtro explicita o alcance global sem blocos repetidos de instrução na tela.
 
 ### Captura da API não é tráfego inbound
 
-`WinDivertRecv` entrega pacotes **interceptados pelo filtro**, não necessariamente recebidos do servidor. A direção está em `WINDIVERT_ADDRESS.Outbound`. GLOBAL abre literalmente `outbound` e aplica efeitos somente quando `addr.Outbound` é verdadeiro; não transforma uma chamada Recv em tráfego inbound. A reinjeção usa o endereço/direção original. Clumsy também usa WinDivert: a comparação correta é Lag de saída versus Atraso de saída, e não Lag versus Freeze indefinido ou Drop 100%. A semelhança da API não prova equivalência de desempenho. Não há detecção ou bypass de anticheat.
+`WinDivertRecv` entrega pacotes **interceptados pelo filtro**, não necessariamente recebidos do servidor. A direção está em `WINDIVERT_ADDRESS.Outbound`. GLOBAL abre literalmente `outbound` e aplica efeitos somente quando `addr.Outbound` é verdadeiro. A reinjeção usa o endereço/direção original. Não há detecção ou bypass de anticheat.
 
 Como é um filtro GLOBAL, pode afetar navegador, chamadas e outros serviços enquanto estiver ativo. Os recursos internos de parada segura, fechamento do WinDivert e liberação da fila permanecem para não deixar tráfego retido após STOP. Nenhum teste em Roblox Player foi realizado, nem há garantia de efeito específico na partida.
 
@@ -57,7 +58,7 @@ WinDivert não permite trocar filtro nativamente no mesmo handle: a publicação
 
 ## Verificação e download
 
-GitHub Actions “Windows validation” compila, executa regressões e smoke WPF, e publica UMA pasta `DarkDesync-win-x64`. Driver real é opt-in em `workflow_dispatch` com `driver_tests=true`; só usa sockets TCP/UDP loopback próprios e falha sem driver. Além dos três efeitos de saída e isolamento entre PIDs, há cenário de TCP:443 inicial, UDP posterior promovido automaticamente, troca de filtro com tráfego, restart sem perder ledger, fechamento de UDP mantendo TCP/PID e encerramento do PID. Entrada é coberta sinteticamente: loopback WinDivert é reportado como saída. Em PowerShell elevado:
+GitHub Actions “Windows validation” compila, executa regressões e smoke WPF, e publica UMA pasta `DarkDesync-win-x64`. Driver real é opt-in em `workflow_dispatch` com `driver_tests=true`; só gera sockets TCP/UDP loopback próprios e falha sem driver. A suíte cobre os quatro efeitos visíveis, APIs legadas e isolamento entre PIDs, TCP:443 inicial, UDP posterior promovido automaticamente, troca de filtro com tráfego, restart sem perder ledger, fechamento de UDP mantendo TCP/PID e encerramento do PID. Entrada é coberta sinteticamente: loopback WinDivert é reportado como saída. Em PowerShell elevado:
 
     $env:DARKDESYNC_DRIVER_TESTS='1'
     dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release
