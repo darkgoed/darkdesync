@@ -384,6 +384,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public string EffectSupportText => ModeCatalog.Parse(_selectedDiagnosticModeText) switch
     {
+        DiagnosticMode.InterPacketGapEqualization => "TCP/UDP IPv4/IPv6 até 4096 bytes: FIFO por fluxo, intervalo EMA 6–24 ms (inicial 8), sem catch-up de burst salvo TTL 96 ms/fim/STOP. Até 128 fluxos/512 pacotes/768 KiB; overload cancela e drena. Não equivale a KB/s nem reorder.",
+        DiagnosticMode.DeadlineAwareScheduling => "TCP/UDP IPv4/IPv6 até 4096 bytes: EDF entre cabeças FIFO, orçamento de idade 16 ms (pequenos) / 48 ms (grandes), antecipação até 24 ms conforme backlog. FIFO pode herdar deadline anterior. Alvos, não garantia de tempo real; fim/STOP/overload drenam.",
         DiagnosticMode.PacketDuplication => "UDP IPv4/IPv6 até 1400 bytes IP: uma cópia extra, até 16 cópias/32 KiB por pulso. TCP, fragmentos/extensões passam; sem ganho garantido em jogo.",
         DiagnosticMode.EcnCongestionMarking => "IPv4/IPv6 TCP/UDP até 4096 bytes: ECT(0)/ECT(1) vira CE; Not-ECT e CE passam. Checksums corrigidos; endpoints podem ignorar ECN.",
         DiagnosticMode.DscpTrafficMarking => "DSCP configurado (0–63) em IPv4/IPv6 TCP/UDP até 4096 bytes; preserva ECN e corrige checksums. Roteadores podem ignorar/remarcar; não obriga prioridade.",

@@ -6,7 +6,7 @@ Aplicativo Windows WPF C#/.NET 8 para ensaios de rede autorizados. Repositório 
 
 O filtro é literalmente `outbound`: TODOS os aplicativos do Windows, sem PID ou seleção oculta de protocolo. O aviso fixo permanece visível.
 
-1. Escolha um dos quatro favoritos ou cinco técnicas e a duração: 0–800 ms, padrão 200 ms; 0 desativa.
+1. Escolha um dos quatro favoritos ou sete técnicas e a duração: 0–800 ms, padrão 200 ms; 0 desativa.
 2. START abre captura como administrador em ARMADO/pass-through, SEM efeito.
 3. Espaço ou Pulso manual aplica UM pulso; ao terminar volta a ARMADO sem fechar o handle. Tecla mantida não repete; não existe ciclo automático. O hook não consome a tecla.
 4. STOP cancela e libera pendências com handle ainda válido, encerra workers/captura e retorna a PARADO. Carregar/padrões e fechar também encerram captura. Sem START, Espaço não abre captura.
@@ -36,8 +36,14 @@ Para atualizar avaliações sem recompilar, edite `effect-assessments.json` com 
 | DSCP Traffic Marking | TCP/UDP IPv4/IPv6 até 4096 bytes IP: DSCP configurável 0–63, padrão 8; preserva ECN. Valor congelado no início do pulso. |
 | MTU / Fragmentation · laboratório local | Somente sondas UDP IPv4 nos próprios sockets loopback, DF solicitado ligado/desligado, MTU lido da interface; relatório de entrega exata. Não é fragmentação GLOBAL. |
 | TCP ACK Pacing | Só ACK puro TCP IPv4/IPv6, FIFO por fluxo: primeiro alvo 8 ms e espaçamento 12 ms, TTL 64 ms limitado ao pulso; round-robin até 128 fluxos/512 pacotes/768 KiB. |
+| Inter-Packet Gap Equalization | FIFO por fluxo, intervalo EMA de chegadas limitado 6–24 ms (inicial 8); release usa último envio real, não catch-up de burst, salvo TTL 96 ms/fim/STOP. Independe de bytes por segundo. |
+| Deadline-Aware Scheduling | EDF entre cabeças FIFO: deadline idade 16 ms para IP <=256 bytes / 48 ms para maiores; FIFO pode herdar deadline anterior. Reserva de serviço pelo backlog antecipa até 24 ms, não taxa constante ou atraso fixo. |
 
-Cinco técnicas novas ficam “Não avaliado”, em todos os tempos sem observações do proprietário. Fragmentos IPv4, extensões IPv6, ICMP e formatos incompatíveis passam sem modificação. ECN/DSCP preservam payload/flow label e recalculam checksums IPv4/TCP/UDP. ECN não prova resposta do endpoint; DSCP não obriga prioridade e pode ser removido pela rede. Duplicação pode prejudicar aplicações UDP; nunca fabrica ACK TCP. ACK piggyback/data/controle drena ACKs pendentes do mesmo fluxo antes de passar; sobrecarga cancela/drena o pulso (fail-open). STOP/fim podem comprimir intervalos para priorizar entrega segura; Windows não garante deadlines em tempo real.
+Gap/Deadline suportam TCP/UDP IPv4/IPv6 simples até 4096 bytes IP; não alteram bytes, checksum ou endereço. Limites 128 fluxos, 512 pacotes, 768 KiB; overload cancela/drena fail-open. Tempo é alvo sob relógio monotônico, não garantia hard real-time do Windows. Deadlines/TTL/fim/STOP priorizam entrega e podem comprimir pacing; nunca aguardam pacote futuro para liberar fila.
+
+UDMUX Channel-Aware: não verificável nesta entrega (não há esquema/capturas controladas provando canais externos); tamanho/porta/UDP não são prova. Multipath e NAT Rebinding indisponíveis: exigem respectivamente duas rotas reais comprovadas com receptor próprio e cliente+gateway/NAT+servidor externo próprios comprovando mudança de mapeamento. IfIdx/SubIfIdx outbound são ignorados pelo WinDivert; trocar esses campos não cria multipath, trocar porta não prova NAT WAN. Nenhum dos três aparece como opção acionável, apenas aviso separado de indisponibilidade. Não houve alteração persistente de roteamento/NAT/firewall/interfaces, nem experimentos Roblox cancelados.
+
+Sete técnicas novas ficam “Não avaliado”, em todos os tempos sem observações do proprietário. Fragmentos IPv4, extensões IPv6, ICMP e formatos incompatíveis passam sem modificação. ECN/DSCP preservam payload/flow label e recalculam checksums IPv4/TCP/UDP. ECN não prova resposta do endpoint; DSCP não obriga prioridade e pode ser removido pela rede. Duplicação pode prejudicar aplicações UDP; nunca fabrica ACK TCP. ACK piggyback/data/controle drena ACKs pendentes do mesmo fluxo antes de passar; sobrecarga cancela/drena o pulso (fail-open). STOP/fim podem comprimir intervalos para priorizar entrega segura; Windows não garante deadlines em tempo real.
 
 O laboratório MTU não altera interface/registro/rotas/firewall/IPv6 PMTUD. Tamanhos de payload 128/1472/4000/60000 bytes, máximo oito sondas por pulso, canceláveis; relatório pode ser parcial em pulso curto/STOP. O maior IP entregue é um limite inferior local, não PMTU WAN. Loopback não demonstra fragmentação/reassemblagem: nenhuma alegação de fragmentação é feita nem fragmentos globais são emitidos.
 
@@ -50,7 +56,7 @@ Os quatro favoritos, duplicação e ACK pacing preservam payload/checksums/ender
 
 ## Configurações e legado
 
-Somente os quatro favoritos + cinco técnicas acima são selecionáveis. Os oito rejeitados, Packet Size-Aware, inbound, duplex e reordering antigo NÃO estão no dropdown. Não existe checkbox de consentimento por efeito. Enum append-only: todos IDs 0–30 preservados, cinco técnicas 31–35. Parser e APIs/schedulers legados permanecem internos para leitura/regressão, inacessíveis pelos controles de produção.
+Somente os quatro favoritos + sete técnicas acima são selecionáveis. Os oito rejeitados, Packet Size-Aware, inbound, duplex e reordering antigo NÃO estão no dropdown. Não existe checkbox de consentimento por efeito. Enum append-only: todos IDs 0–35 preservados, novos schedulers 36–37. Parser e APIs/schedulers legados permanecem internos para leitura/regressão, inacessíveis pelos controles de produção.
 
 Efeito salvo removido deixa seleção indisponível: START, pulso e Salvar ficam bloqueados até escolha explícita de uma opção suportada. Carregar não regrava nem substitui por favorito silenciosamente; tempo/campos/enums antigos permanecem. Após escolha válida, Salvar grava só a seleção válida em `%LOCALAPPDATA%/DarkDesync/settings.json`. Captura efetiva da UI é sempre Outbound GLOBAL, sem PID; legado estrito PID/FLOW permanece interno aos testes e exige tuplas comprovadas.
 

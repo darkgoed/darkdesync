@@ -12,7 +12,7 @@ public sealed class RankingAndSupportTests
     public void RankingIsPersonalAndStableIdentityRoundtrips()
     {
         Assert.Equal(new[] { DiagnosticMode.DualTokenBucket, DiagnosticMode.FlowAwareShaping, DiagnosticMode.OutboundFreeze }, ModeCatalog.PersonalRanking250ms);
-        Assert.Equal(22, ModeCatalog.Choices.Count);
+        Assert.Equal(24, ModeCatalog.Choices.Count);
         Assert.Equal(new[] { "1º Dual Token Bucket", "2º Flow-Aware Shaping", "3º Outbound Freeze", "Bandwidth Shaping", "Inbound Bandwidth Shaping", "Correlated Inbound Jitter", "Packet Size-Aware Shaping", "Asymmetric Duplex Shaping", "Controlled Packet Reordering — EXPERIMENTAL" }, ModeCatalog.Choices.Keys.Take(9));
         foreach (var pair in ModeCatalog.Choices)
         {

@@ -633,6 +633,10 @@ public sealed partial class PacketEngine : IDisposable
     public double AdaptiveTargetBytesPerSecond { get { lock (_packetLock) return _outboundScheduler?.TargetBytesPerSecond ?? 0; } }
     private ScopedPulseScheduler? _scopedScheduler;
     private AckPulseQueue? _ackQueue;
+    private TemporalPulseQueue? _temporalQueue;
+    private long _temporalHeld, _temporalReleased;
+    public long TemporalPacketsHeld => Interlocked.Read(ref _temporalHeld);
+    public long TemporalPacketsReleased => Interlocked.Read(ref _temporalReleased);
     private int _duplicationBudget, _duplicationBytes, _pulseDscp;
     private int _dscpCodepoint = 8;
     public int DscpCodepoint { get => Volatile.Read(ref _dscpCodepoint); set => Volatile.Write(ref _dscpCodepoint, Math.Clamp(value, 0, 63)); }
@@ -779,6 +783,8 @@ public sealed partial class PacketEngine : IDisposable
                 ? new OutboundPulseScheduler(mode, _effectStartedTicks, _effectDeadline, OutboundSeedOverride ?? Random.Shared.Next()) : null;
             _scopedScheduler = IsScopedProfile(mode) ? new ScopedPulseScheduler(mode, _effectStartedTicks) : null;
             _ackQueue = mode == DiagnosticMode.TcpAckPacing ? new AckPulseQueue(_effectDeadline) : null;
+            _temporalQueue = mode is DiagnosticMode.InterPacketGapEqualization or DiagnosticMode.DeadlineAwareScheduling
+                ? new TemporalPulseQueue(mode, _effectDeadline) : null;
             _duplicationBudget = _duplicationBytes = 0; _pulseDscp = DscpCodepoint;
             if (mode == DiagnosticMode.MtuFragmentationLab) StartMtuLabLocked(generation);
             LastShapingFallback = null;
@@ -1110,7 +1116,7 @@ public sealed partial class PacketEngine : IDisposable
             }
 
             // Diagnostic Mode evaluation: restricted strictly to authorized test traffic
-            if (active && _armedCapture && _activeDiagnosticMode is >= DiagnosticMode.PacketDuplication and <= DiagnosticMode.TcpAckPacing)
+            if (active && _armedCapture && _activeDiagnosticMode is >= DiagnosticMode.PacketDuplication and <= DiagnosticMode.DeadlineAwareScheduling)
                 return ProcessTechniquePacket(packetBuffer, recvLen, addr);
             if (active && _armedCapture && _outboundScheduler != null)
                 return ProcessOutboundScheduledPacket(packetBuffer, recvLen, addr);
@@ -1741,6 +1747,8 @@ public sealed partial class PacketEngine : IDisposable
         lock (_packetLock)
         {
             ExpireArmedEffectLocked();
+            if (_temporalQueue != null && _temporalQueue.TryDequeue(now, out var temporal))
+            { SendThrottledPacket(temporal!); Interlocked.Increment(ref _temporalReleased); return true; }
             if (_ackQueue != null && _ackQueue.TryDequeue(now, out var ack))
             { SendThrottledPacket(ack!); Interlocked.Increment(ref _acksReleased); return true; }
             if (_outboundScheduler != null)
@@ -1793,6 +1801,11 @@ public sealed partial class PacketEngine : IDisposable
 
     private void FlushThrottleQueueLocked()
     {
+        if (_temporalQueue != null)
+        {
+            foreach (var p in _temporalQueue.Drain()) { SendThrottledPacket(p); Interlocked.Increment(ref _temporalReleased); }
+            _temporalQueue = null;
+        }
         if (_ackQueue != null)
         {
             foreach (var ack in _ackQueue.Drain()) { SendThrottledPacket(ack); Interlocked.Increment(ref _acksReleased); }
