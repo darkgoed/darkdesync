@@ -125,6 +125,21 @@ public sealed class ArmedCaptureTests
     }
 
     [Fact]
+    public void ConcurrentPresses_AcceptOnlyOnePulse()
+    {
+        using var engine = DiagnosticModesTests.Engine(); ModelArm(engine);
+        int accepted = 0;
+        Parallel.For(0, 100, _ =>
+        {
+            if (engine.TriggerArmedEffect(DiagnosticMode.OutboundFreeze, 800)) Interlocked.Increment(ref accepted);
+        });
+        Assert.Equal(1, accepted);
+        Assert.True(engine.IsEffectActive);
+        engine.Stop();
+        Assert.False(engine.TriggerArmedEffect(DiagnosticMode.OutboundFreeze, 800));
+    }
+
+    [Fact]
     public async Task OldPulseTimer_CannotStopOrRestoreNewStart()
     {
         using var engine = DiagnosticModesTests.Engine(); ModelArm(engine);

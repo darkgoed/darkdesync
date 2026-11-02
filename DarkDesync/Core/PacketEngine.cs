@@ -664,6 +664,7 @@ public sealed class PacketEngine : IDisposable
 
     private void CancelArmedEffectLocked()
     {
+        Interlocked.Increment(ref _armedGeneration); // Also revokes queued hotkeys on profile cancellation.
         ++_effectGeneration;
         _effectTimer?.Dispose(); _effectTimer = null;
         _effectDeadline = 0;

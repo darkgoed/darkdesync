@@ -58,21 +58,26 @@ public sealed class ConfigurationBehaviorTests
         Assert.False(engine.IsRunning); Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState);
     });
     [Fact]
-    public void JitterOnlyCycleAndProfileToggleCancelWithoutDisablingContinuous() => WithVm((vm, engine, controller, dir) =>
+    public void JitterOnlyCycleRequiresStart_AndProfileToggleReturnsToArmed() => WithVm((vm, engine, controller, dir) =>
     {
         vm.CycleProfileEnabled = false; vm.ThrottleEnabled = true;
-        var running = typeof(PacketEngine).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic)!;
         try
         {
-            running.SetValue(engine, true); vm.TriggerCycleCommand.Execute(null);
+            vm.TriggerCycleCommand.Execute(null);
+            Assert.False(engine.IsCaptureRequested);
+            Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState);
+            ArmedCaptureTests.ModelArm(engine, global: false);
+            vm.TriggerCycleCommand.Execute(null);
             Assert.Equal(DesyncStateMachine.State.Active, controller.CurrentState); Assert.False(engine.CycleDropEnabled);
             vm.SelectedThrottleMode = vm.ThrottleModeOptions[1];
-            Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState); Assert.True(engine.ThrottleContinuous);
-            vm.CycleProfileEnabled = true; Assert.True(controller.TriggerCycle());
+            Assert.Equal(DesyncStateMachine.State.Armed, controller.CurrentState); Assert.True(engine.ThrottleContinuous);
+            vm.CycleProfileEnabled = true; vm.TriggerCycleCommand.Execute(null);
+            Assert.True(engine.IsEffectActive);
             vm.CycleProfileEnabled = false;
-            Assert.Equal(DesyncStateMachine.State.Idle, controller.CurrentState); Assert.True(engine.ThrottleEnabled); Assert.True(engine.ThrottleContinuous);
+            Assert.Equal(DesyncStateMachine.State.Armed, controller.CurrentState); Assert.True(engine.ThrottleEnabled); Assert.True(engine.ThrottleContinuous);
+            Assert.True(engine.IsRunning);
         }
-        finally { running.SetValue(engine, false); controller.CancelCycle(); }
+        finally { engine.Stop(); }
     });
     [Fact]
     public void LoadingStopsCaptureBeforeApplyingAllSettings() => WithVm((vm, engine, controller, dir) =>
