@@ -173,6 +173,59 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
         output.WriteLine("UDP socket closure revoked UDP only; PID closure revoked all scope; workers terminated without deadlock.");
     }
 
+    [DriverTheory]
+    [Trait("Category", "Driver")]
+    [InlineData(DiagnosticMode.OutboundFreeze)]
+    [InlineData(DiagnosticMode.AsymmetricLoss)]
+    [InlineData(DiagnosticMode.LatencyDelay)]
+    public async Task StrictStartArmed_PassesBeforePulse_AndRestoresWhileStillScoped(DiagnosticMode mode)
+    {
+        using var peer = await Peer.Start();
+        using var client = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        client.Connect(IPAddress.Loopback, peer.Port);
+        using var engine = DiagnosticModesTests.Engine();
+        engine.SetDropPercentage(100);
+        engine.CycleDropEnabled = engine.ThrottleEnabled = engine.ThrottleContinuous = true;
+        engine.AsymmetricOutboundLossPercentage = 100;
+        engine.GlobalDelayMs = 3000;
+        Assert.False(engine.TriggerArmedEffect(mode, 400));
+        Assert.False(engine.StartArmed(FilterMode.Custom, peer.Pid, 100, "outbound and udp"));
+        Assert.True(engine.IsCaptureRequested);
+        await client.SendAsync(new byte[] { 110 }, 1);
+        Assert.Equal(new byte[] { 110 }, (await client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer);
+        await WaitUntil(() => engine.IsRunning && engine.ScopeStatus.UdpScoped > 0);
+        await client.SendAsync(new byte[] { 111 }, 1);
+        Assert.Equal(new byte[] { 111 }, (await client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
+        Assert.Equal(DesyncStateMachine.State.Armed, engine.StateMachine.Current);
+        Assert.Equal(DiagnosticMode.None, engine.ActiveDiagnosticMode);
+        Assert.Equal(0, engine.PacketsDropped); Assert.Equal(0, engine.PacketsThrottled);
+        Assert.True(engine.TriggerArmedEffect(mode, 400));
+        var receive = client.ReceiveAsync();
+        await client.SendAsync(new byte[] { 112 }, 1);
+        await WaitUntil(() => engine.PacketsDropped + engine.PacketsThrottled > 0);
+        Assert.False(receive.IsCompleted);
+        // Both endpoints belong to another PID; strict capture must not touch them.
+        long captured = engine.PacketsIntercepted;
+        using (var otherReceiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
+        using (var otherSender = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
+        {
+            await otherSender.SendAsync(new byte[] { 113 }, (IPEndPoint)otherReceiver.Client.LocalEndPoint!);
+            Assert.Equal(new byte[] { 113 }, (await otherReceiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(1))).Buffer);
+        }
+        Assert.Equal(captured, engine.PacketsIntercepted);
+        await WaitUntil(() => engine.StateMachine.Current == DesyncStateMachine.State.Armed);
+        Assert.True(engine.IsRunning); Assert.True(engine.ScopeStatus.UdpScoped > 0);
+        if (mode != DiagnosticMode.AsymmetricLoss)
+        {
+            Assert.Equal(new byte[] { 112 }, (await receive.WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
+            receive = client.ReceiveAsync();
+        }
+        await client.SendAsync(new byte[] { 114 }, 1);
+        Assert.Equal(new byte[] { 114 }, (await receive.WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
+        engine.Stop(); Assert.False(engine.IsRunning);
+        output.WriteLine($"Strict PID {peer.Pid}, {mode}: armed pass-through despite Drop100/continuous throttle; pulse only after START; timer preserved scoped capture; other PID untouched; STOP closed.");
+    }
+
     private static async Task WaitUntil(Func<bool> ready)
     {
         var clock = Stopwatch.StartNew();

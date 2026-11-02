@@ -118,12 +118,7 @@ public sealed class HotkeyService : IDisposable
             {
                 bool down = wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)0x0104;
                 bool up = wParam == (IntPtr)0x0101 || wParam == (IntPtr)0x0105;
-                if ((down || up) && AcceptKeyTransition(vkCode, down) &&
-                    (_targetWindowHandle == IntPtr.Zero || IsTargetForeground()))
-                {
-                    try { HotkeyPressed?.Invoke(); }
-                    catch (Exception ex) { _logger.LogWarning(ex, "Hotkey subscriber failed; key remains pass-through"); }
-                }
+                if (down || up) DispatchKeyTransition(vkCode, down);
             }
         }
 
@@ -131,6 +126,14 @@ public sealed class HotkeyService : IDisposable
     }
 
     // One physical press per pulse, even if held longer than a complete cycle.
+    internal void DispatchKeyTransition(int key, bool down)
+    {
+        if (!AcceptKeyTransition(key, down) ||
+            (_targetWindowHandle != IntPtr.Zero && !IsTargetForeground())) return;
+        try { HotkeyPressed?.Invoke(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Hotkey subscriber failed; key remains pass-through"); }
+    }
+
     internal bool AcceptKeyTransition(int key, bool down)
     {
         if (!down) { _heldKeys.Remove(key); return false; }

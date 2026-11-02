@@ -71,18 +71,22 @@ internal static class Program
             Require(controls.OfType<Button>().Any(b => ReferenceEquals(b.Command, vm.ToggleEngineCommand) && b.IsEnabled),
                 "START/STOP button is available in GLOBAL");
             vm.TriggerCycleCommand.Execute(null); Pump();
-            Require(!vm.IsEngineRunning && vm.NetworkDiagnosticsText.Contains("GLOBAL"), "Manual pulse is not required in GLOBAL");
+            Require(!vm.IsEngineRunning && vm.NetworkDiagnosticsText.Contains("GLOBAL"), "Manual pulse cannot arm GLOBAL without START");
             mode.SelectedItem = "Atraso (ms)"; Pump();
             Require(vm.IsGlobalDelayVisible, "Global latency delay slider must be visible");
             var delaySlider = controls.OfType<Slider>().Single(sl => sl.Minimum == 0 && sl.Maximum == 3000);
             Require(delaySlider.IsVisible, "Delay slider must be present and visible");
             delaySlider.Value = 450; Pump();
             Require(vm.GlobalDelayMs == 450, "Delay-ms slider must update the model");
+            var pulseSlider = controls.OfType<Slider>().Single(sl => sl.Minimum == 0 && sl.Maximum == 800);
+            Require(pulseSlider.IsVisible, "Pulse duration must also be visible in GLOBAL");
+            pulseSlider.Value = 175; Pump();
+            Require(vm.DiagnosticCycleDurationMs == 175 && vm.GlobalDelayMs == 450, "Pulse duration and per-packet delay are independent");
+            var hotkeyHelp = (TextBlock)window.FindName("HotkeyHelp");
+            Require(hotkeyHelp.Text.Contains("START") && hotkeyHelp.Text.Contains("Espaço"), "Help describes START then Space");
             Require(vm.NetworkDiagnosticsText.Contains("450 ms"), "Live diagnostics must show configured delay");
             vm.DiagnosticCycleDurationMs = 0; Pump();
-            Require(vm.EngineToggleText == "START", "Zero-duration pulse does not restrict continuous START");
-            vm.DiagnosticCycleDurationMs = 0; Pump();
-            Require(vm.EngineToggleText == "START", "Zero-duration pulse does not restrict continuous START");
+            Require(vm.EngineToggleText == "START", "Zero-duration pulse does not restrict arming START");
             vm.SaveSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
             Require(vm.IsLegacyGlobalSelected && vm.EngineToggleText == "START",
                 "GLOBAL mode selection persists, capture never starts on load");
@@ -93,21 +97,39 @@ internal static class Program
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(vm)!;
             void ModelRunning()
             {
+                typeof(PacketEngine).GetMethod("PrepareArmedCapture", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(engine, null);
                 typeof(PacketEngine).GetField("_isRunning", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(engine, true);
                 typeof(PacketEngine).GetField("_captureRequested", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(engine, true);
+                typeof(PacketEngine).GetField("_stopping", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(engine, false);
                 typeof(MainViewModel).GetProperty(nameof(vm.IsEngineRunning))!.SetValue(vm, true);
-                engine.StateMachine.TryActivate();
             }
+            var hotkey = (HotkeyService)typeof(MainViewModel).GetField("_hotkeyService", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(vm)!;
+            var dispatch = typeof(HotkeyService).GetMethod("DispatchKeyTransition", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            void Key(bool down) => dispatch.Invoke(hotkey, new object[] { 0x20, down });
+            vm.SelectedHotkeyName = "Espaço";
+            Key(true); Pump(); Key(false);
+            Require(!engine.IsCaptureRequested, "Space before START never captures");
             ModelRunning();
             Require(vm.EngineToggleText == "STOP", "Running engine exposes STOP");
+            Require(engine.ActiveDiagnosticMode == DiagnosticMode.None, "START arms with no selected effect applied");
+            vm.DiagnosticCycleDurationMs = 800;
+            Key(true); Pump();
+            Require(engine.IsEffectActive && engine.ActiveDiagnosticMode == DiagnosticMode.LatencyDelay, "Actual HotkeyPressed subscription starts selected pulse after START");
+            vm.CancelCycleCommand.Execute(null); Pump();
+            Require(engine.IsRunning && !engine.IsEffectActive, "Cancel restores without closing capture");
+            Key(true); Pump();
+            Require(!engine.IsEffectActive, "Held Space repeat cannot start another pulse even after cancellation");
+            Key(false); Key(true); Pump(); Key(false);
+            Require(engine.IsEffectActive, "Second physical press accepted after release");
+            vm.CancelCycleCommand.Execute(null); Pump();
             vm.CycleProfileEnabled = false;
             vm.ThrottleEnabled = true; vm.ThrottleEnabled = false;
             vm.SelectedThrottleMode = vm.ThrottleModeOptions[1]; Pump();
-            Require(engine.IsRunning && engine.StateMachine.Current == DesyncStateMachine.State.Active,
-                "Unrelated legacy controls cannot cancel continuous GLOBAL");
+            Require(engine.IsRunning && engine.StateMachine.Current == DesyncStateMachine.State.Armed,
+                "Legacy controls cannot apply an effect to armed GLOBAL");
             mode.SelectedItem = "Drop (%)"; Pump();
-            Require(!engine.IsRunning && vm.EngineToggleText == "START" && vm.IsGlobalDropVisible,
-                "Effect change stops GLOBAL and shows explicit Drop controls");
+            Require(engine.IsRunning && !engine.IsEffectActive && vm.EngineToggleText == "STOP" && vm.IsGlobalDropVisible,
+                "Effect change preserves arming, never applies effect, and shows explicit Drop controls");
             Require(!delaySlider.IsVisible, "Delay widget hides for Drop");
             vm.DropPercentage = 37; vm.SaveSettingsCommand.Execute(null);
             vm.ResetSettingsCommand.Execute(null); vm.LoadSettingsCommand.Execute(null); Pump();
