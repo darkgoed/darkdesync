@@ -178,6 +178,11 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
     [InlineData(DiagnosticMode.OutboundFreeze)]
     [InlineData(DiagnosticMode.AsymmetricLoss)]
     [InlineData(DiagnosticMode.LatencyDelay)]
+    [InlineData(DiagnosticMode.BandwidthShaping)]
+    [InlineData(DiagnosticMode.HoldAndDrainShaping)]
+    [InlineData(DiagnosticMode.RateStepShaping)]
+    [InlineData(DiagnosticMode.DualTokenBucket)]
+    [InlineData(DiagnosticMode.FlowAwareShaping)]
     public async Task StrictStartArmed_PassesBeforePulse_AndRestoresWhileStillScoped(DiagnosticMode mode)
     {
         using var peer = await Peer.Start();
@@ -201,7 +206,9 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
         Assert.Equal(0, engine.PacketsDropped); Assert.Equal(0, engine.PacketsThrottled);
         Assert.True(engine.TriggerArmedEffect(mode, 400));
         var receive = client.ReceiveAsync();
-        await client.SendAsync(new byte[] { 112 }, 1);
+        byte[] shaped = PulseShaper.Handles(mode) || mode == DiagnosticMode.BandwidthShaping ? new byte[900] : new byte[1];
+        shaped[0] = 112;
+        await client.SendAsync(shaped, shaped.Length);
         await WaitUntil(() => engine.PacketsDropped + engine.PacketsThrottled > 0);
         Assert.False(receive.IsCompleted);
         // Both endpoints belong to another PID; strict capture must not touch them.
@@ -217,7 +224,7 @@ public sealed class UdpDriverIntegrationTests(ITestOutputHelper output)
         Assert.True(engine.IsRunning); Assert.True(engine.ScopeStatus.UdpScoped > 0);
         if (mode != DiagnosticMode.AsymmetricLoss)
         {
-            Assert.Equal(new byte[] { 112 }, (await receive.WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
+            Assert.Equal(shaped, (await receive.WaitAsync(TimeSpan.FromSeconds(3))).Buffer);
             receive = client.ReceiveAsync();
         }
         await client.SendAsync(new byte[] { 114 }, 1);

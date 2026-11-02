@@ -288,7 +288,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     // Diagnostic mode selection
     private string _selectedDiagnosticModeText = "Outbound Freeze";
-    public List<string> DiagnosticModeOptions { get; } = new() { "Outbound Freeze", "Burst Buffering", "Slotted Transmission", "Sawtooth Delay", "Bandwidth Shaping", "Adaptive Freeze" };
+    public List<string> DiagnosticModeOptions { get; } = new() { "Outbound Freeze", "Bandwidth Shaping", "Hold-and-Drain Shaping", "Rate-Step Shaping", "Dual Token Bucket", "Flow-Aware Shaping" };
 
     public string SelectedDiagnosticModeText
     {
@@ -731,11 +731,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var diagMode = _selectedDiagnosticModeText switch
         {
             "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-            "Burst Buffering" => DiagnosticMode.BurstBuffering,
-            "Slotted Transmission" => DiagnosticMode.SlottedTransmission,
-            "Sawtooth Delay" => DiagnosticMode.SawtoothDelay,
+            "Hold-and-Drain Shaping" => DiagnosticMode.HoldAndDrainShaping,
+            "Rate-Step Shaping" => DiagnosticMode.RateStepShaping,
+            "Dual Token Bucket" => DiagnosticMode.DualTokenBucket,
             "Bandwidth Shaping" => DiagnosticMode.BandwidthShaping,
-            "Adaptive Freeze" => DiagnosticMode.AdaptiveFreeze,
+            "Flow-Aware Shaping" => DiagnosticMode.FlowAwareShaping,
             _ => DiagnosticMode.OutboundFreeze
         };
 
@@ -802,7 +802,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var settings = _settingsStore.Load();
             ApplySettings(settings);
-            bool migrated = settings.DiagnosticMode is not (DiagnosticMode.OutboundFreeze or DiagnosticMode.BurstBuffering or DiagnosticMode.SlottedTransmission or DiagnosticMode.SawtoothDelay or DiagnosticMode.BandwidthShaping or DiagnosticMode.AdaptiveFreeze);
+            bool migrated = settings.DiagnosticMode is not (DiagnosticMode.OutboundFreeze or DiagnosticMode.HoldAndDrainShaping or DiagnosticMode.RateStepShaping or DiagnosticMode.DualTokenBucket or DiagnosticMode.BandwidthShaping or DiagnosticMode.FlowAwareShaping);
             SettingsStatus = migrated
                 ? "Efeito antigo → Outbound Freeze. Arquivo original mantido até Salvar."
                 : "Configuração carregada · captura parada.";
@@ -830,11 +830,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 DiagnosticMode = _selectedDiagnosticModeText switch
                 {
                     "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-                    "Burst Buffering" => DiagnosticMode.BurstBuffering,
-                    "Slotted Transmission" => DiagnosticMode.SlottedTransmission,
-                    "Sawtooth Delay" => DiagnosticMode.SawtoothDelay,
+                    "Hold-and-Drain Shaping" => DiagnosticMode.HoldAndDrainShaping,
+                    "Rate-Step Shaping" => DiagnosticMode.RateStepShaping,
+                    "Dual Token Bucket" => DiagnosticMode.DualTokenBucket,
                     "Bandwidth Shaping" => DiagnosticMode.BandwidthShaping,
-                    "Adaptive Freeze" => DiagnosticMode.AdaptiveFreeze,
+                    "Flow-Aware Shaping" => DiagnosticMode.FlowAwareShaping,
                     _ => DiagnosticMode.OutboundFreeze
                 }
             });
@@ -872,11 +872,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SelectedDiagnosticModeText = s.DiagnosticMode switch
         {
             DiagnosticMode.OutboundFreeze => "Outbound Freeze",
-            DiagnosticMode.BurstBuffering => "Burst Buffering",
-            DiagnosticMode.SlottedTransmission => "Slotted Transmission",
-            DiagnosticMode.SawtoothDelay => "Sawtooth Delay",
+            DiagnosticMode.HoldAndDrainShaping => "Hold-and-Drain Shaping",
+            DiagnosticMode.RateStepShaping => "Rate-Step Shaping",
+            DiagnosticMode.DualTokenBucket => "Dual Token Bucket",
             DiagnosticMode.BandwidthShaping => "Bandwidth Shaping",
-            DiagnosticMode.AdaptiveFreeze => "Adaptive Freeze",
+            DiagnosticMode.FlowAwareShaping => "Flow-Aware Shaping",
             _ => "Outbound Freeze"
         };
         CustomFilterText = s.CustomFilter;
