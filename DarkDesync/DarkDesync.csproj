@@ -16,6 +16,10 @@
 
   <!-- Copy WinDivert binaries to output -->
   <ItemGroup>
+    <None Update="effect-assessments.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="effect-assessments.json" />
+  </ItemGroup>
+  <ItemGroup>
     <None Include="..\WinDivert-2.2.2\WinDivert-2.2.2-A\x64\WinDivert.dll" CopyToOutputDirectory="PreserveNewest" Link="WinDivert.dll" />
     <None Include="..\WinDivert-2.2.2\WinDivert-2.2.2-A\x64\WinDivert64.sys" CopyToOutputDirectory="PreserveNewest" Link="WinDivert64.sys" />
   </ItemGroup>

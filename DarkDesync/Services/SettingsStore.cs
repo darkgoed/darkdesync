@@ -39,7 +39,7 @@ public sealed record AppSettings
         Hotkey = Hotkey != null && HotkeyService.GetAvailableKeys().ContainsKey(Hotkey) ? Hotkey : "Espaço",
         CustomFilter = string.IsNullOrWhiteSpace(CustomFilter) ? "outbound" : CustomFilter,
         DiagnosticDurationMs = Math.Clamp(DiagnosticDurationMs, 0, 800),
-        PulseStyle = Enum.IsDefined(PulseStyle) &&
+        PulseStyle = Enum.IsDefined(PulseStyle) && PulseStyle != PulseStyle.Balanced &&
             (EffectExperienceCatalog.FixedDuration(PulseStyle) is not int fixedMs || fixedMs == Math.Clamp(DiagnosticDurationMs, 0, 800))
             ? PulseStyle : PulseStyle.Custom,
         GlobalDelayMs = Math.Clamp(GlobalDelayMs, 0, 3000),

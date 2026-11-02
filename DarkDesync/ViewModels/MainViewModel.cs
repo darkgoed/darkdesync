@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -39,7 +40,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
     private string _settingsStatus = "Salve para reutilizar ao abrir. O alvo não é salvo.";
-    public string SettingsStatus { get => _settingsStatus; private set => SetProperty(ref _settingsStatus, value); }
+    public string SettingsStatus { get => _settingsStatus; private set { if (SetProperty(ref _settingsStatus, value)) OnPropertyChanged(nameof(CompactSettingsStatus)); } }
+    public string CompactSettingsStatus => _settingsStatus.StartsWith("Configuração salva") ? "Configuração salva." :
+        _settingsStatus.StartsWith("Não foi possível") ? "Não foi possível carregar ou salvar a configuração." :
+        _settingsStatus.StartsWith("Configuração carregada") ? "Configuração carregada · sem iniciar captura." : "Salvar é explícito. START apenas arma; Espaço aplica o pulso.";
     public string SettingsPath => _settingsStore.FilePath;
     public ICommand SaveSettingsCommand { get; }
     public ICommand LoadSettingsCommand { get; }
@@ -385,7 +389,20 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     };
 
     // One pulse duration shared by the twelve visible effects.
-    public IReadOnlyList<string> PulseStyleOptions { get; } = EffectExperienceCatalog.Styles.Keys.ToArray();
+    public IReadOnlyList<string> PulseStyleOptions { get; } = EffectExperienceCatalog.PrimaryStyles;
+    public ICommand SelectPulseStyleCommand { get; }
+    public bool IsLegitStyle { get => _selectedPulseStyle == "Legit"; set { if (value) SelectedPulseStyle = "Legit"; } }
+    public bool IsAggressiveStyle { get => _selectedPulseStyle == "Agressivo"; set { if (value) SelectedPulseStyle = "Agressivo"; } }
+    public bool IsManualDurationEnabled
+    {
+        get => _selectedPulseStyle == "Teste manual";
+        set => SelectedPulseStyle = value ? "Teste manual" : "Legit";
+    }
+    private void RefreshPulseStyle()
+    {
+        OnPropertyChanged(nameof(IsLegitStyle)); OnPropertyChanged(nameof(IsAggressiveStyle));
+        OnPropertyChanged(nameof(IsManualDurationEnabled)); OnPropertyChanged(nameof(PulseStyleHelpText));
+    }
     private string _selectedPulseStyle = EffectExperienceCatalog.StyleName(PulseStyle.Custom);
     public string SelectedPulseStyle
     {
@@ -393,17 +410,15 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (!EffectExperienceCatalog.Styles.TryGetValue(value ?? "", out var style) || !SetProperty(ref _selectedPulseStyle, value!)) return;
-            CancelCurrentPulse();
             if (EffectExperienceCatalog.FixedDuration(style) is int duration) DiagnosticCycleDurationMs = duration;
-            OnPropertyChanged(nameof(PulseStyleHelpText));
+            RefreshPulseStyle();
         }
     }
     public string PulseStyleHelpText => EffectExperienceCatalog.Styles[_selectedPulseStyle] switch
     {
-        PulseStyle.Legitimate => "Preset Legítimo: 250 ms. Editar ms manualmente passa a Personalizado; não troca o efeito.",
-        PulseStyle.Aggressive => "Preset Agressivo: 800 ms. Editar ms manualmente passa a Personalizado; não troca o efeito.",
-        PulseStyle.Balanced => "Equilibrado: duração ajustável, sem valor fixo fornecido. O tempo atual é mantido.",
-        _ => "Personalizado: duração ajustável. Presets só definem tempo; não classificam o efeito automaticamente."
+        PulseStyle.Legitimate => "250 ms no próximo pulso. Avaliação é pessoal, não garantia em jogo.",
+        PulseStyle.Aggressive => "800 ms no próximo pulso. Avaliação é pessoal, não garantia em jogo.",
+        _ => "Teste manual: ajuste só para o próximo pulso. Equilibrado é uma avaliação, não um preset."
     };
     private EffectRating CurrentEffectRating => _unavailableSavedMode != null
         ? EffectExperienceCatalog.Rating(_unavailableSavedMode.Value, DiagnosticCycleDurationMs)
@@ -424,13 +439,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         set
         {
             int duration = Math.Clamp(value, 0, 800);
+            // A fixed preset cannot be silently overridden by editing a field.
+            if (EffectExperienceCatalog.FixedDuration(EffectExperienceCatalog.Styles[_selectedPulseStyle]) is int fixedMs && duration != fixedMs) return;
             if (!SetProperty(ref _diagnosticCycleDurationMs, duration)) return;
-            CancelCurrentPulse();
-            if (EffectExperienceCatalog.FixedDuration(EffectExperienceCatalog.Styles[_selectedPulseStyle]) is int fixedMs && duration != fixedMs)
-            {
-                _selectedPulseStyle = EffectExperienceCatalog.StyleName(PulseStyle.Custom);
-                OnPropertyChanged(nameof(SelectedPulseStyle)); OnPropertyChanged(nameof(PulseStyleHelpText));
-            }
             RefreshEffectRating();
         }
     }
@@ -522,9 +533,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _ => "DESCONHECIDO"
     };
 
-    public string StatusColorBrush => State switch
+    public string StatusColorBrush => _packetEngine is { IsCaptureRequested: true, IsRunning: false } ? "#FF9F1C" : State switch
     {
-        DesyncStateMachine.State.Idle => "#A78BFA",       // Neon / Cool Blue
+        DesyncStateMachine.State.Idle => "#8D93AA",       // Neutral stopped state
         DesyncStateMachine.State.Armed => "#06D6A0",
         DesyncStateMachine.State.Active => "#EF233C",     // Vivid Red
         DesyncStateMachine.State.Restoring => "#FF9F1C",  // Warning Orange
@@ -596,6 +607,25 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     private string? _startError;
     private string _startStatusText = "Captura parada. START arma Outbound para todos os aplicativos.";
     public string StartStatusText { get => _startStatusText; private set => SetProperty(ref _startStatusText, value); }
+    public string CompactStartErrorText
+    {
+        get
+        {
+            if (CompatibilityError != null) return "Efeito salvo indisponível. Escolha um dos 12 efeitos.";
+            if (_startError == null || Stopwatch.GetElapsedTime(_startErrorAt).TotalSeconds > 15) return "";
+            var native = System.Text.RegularExpressions.Regex.Match(_packetEngine?.ScopeStatus.Reason ?? "", @"Win32\s+(\d+)");
+            return native.Success ? native.Groups[1].Value switch
+            {
+                "2" => "Win32 2 · Driver não encontrado. Extraia DLL e SYS junto do EXE.",
+                "5" => "Win32 5 · Acesso negado. Execute como administrador.",
+                "87" => "Win32 87 · Não foi possível abrir a captura. Reinicie o aplicativo.",
+                "577" => "Win32 577 · Assinatura do driver recusada. Não desative proteções.",
+                _ => "START recusado. Confira a instalação e as permissões."
+            } : "START recusado. Confira a instalação e as permissões.";
+        }
+    }
+    private long _startErrorAt;
+    public string CompactStateText => _packetEngine?.IsRunning == true ? (_packetEngine.IsEffectActive ? "PULSO ATIVO" : "ARMADO") : _packetEngine?.IsCaptureRequested == true ? "AGUARDANDO" : "PARADO";
     public string CaptureStateText => _packetEngine?.IsRunning == true
         ? (_packetEngine.IsEffectActive ? "PULSO ATIVO" : "ARMADO / ATIVO")
         : _packetEngine?.IsCaptureRequested == true ? "AGUARDANDO" : "PARADO / PAUSADO";
@@ -628,6 +658,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(ScopedTuplesText));
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(CaptureStateText));
+        OnPropertyChanged(nameof(CompactStartErrorText));
+        OnPropertyChanged(nameof(CompactStateText));
+        OnPropertyChanged(nameof(StatusColorBrush));
         var s = _packetEngine.ScopeStatus;
         if (_outboundOnly)
         {
@@ -638,7 +671,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                     : s.Running ? (_packetEngine.IsEffectActive ? "Pulso ativo. " : "Captura ARMADA, sem efeito. Espaço ou Pulso manual dispara o efeito. ") + "Outbound · todos os aplicativos."
                     : "Captura parada. START arma Outbound para todos os aplicativos, sem aplicar efeito; STOP encerra e libera pacotes retidos.");
             if (!CycleProfileEnabled) StartStatusText += " Marque Habilitado para permitir o pulso; START somente arma.";
-            if (_startError != null) StartStatusText += " Confira os arquivos extraídos junto do EXE e a execução como Administrador; clique Copiar diagnóstico para suporte. Não desative proteções do sistema.";
+            if (_startError != null) StartStatusText += " Confira os arquivos extraídos junto do EXE e a execução como Administrador. Não desative proteções do sistema.";
             return;
         }
         FilterStatusText = IsLegacyGlobalSelected ? "Outbound global" : $"PID {s.ProcessId} · TCP {s.TcpScoped} · UDP {s.UdpScoped}";
@@ -784,6 +817,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
         // Commands
         TriggerCycleCommand = new RelayCommand(ExecuteTriggerCycle);
+        SelectPulseStyleCommand = new RelayCommand(p => SelectedPulseStyle = p as string ?? "Teste manual");
         SaveSettingsCommand = new RelayCommand(SaveSettings);
         LoadSettingsCommand = new RelayCommand(LoadSettings);
         ResetSettingsCommand = new RelayCommand(() => ApplySettings(new AppSettings()));
@@ -820,7 +854,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             _packetEngine.ErrorOccurred += err => _dispatcher.InvokeAsync(() =>
             {
                 AddLog($"[ERRO MOTOR] {err}");
-                if (!_packetEngine.IsCaptureRequested && _packetEngine.ScopeStatus.Reason.Contains(err)) _startError = err;
+                if (!_packetEngine.IsCaptureRequested && _packetEngine.ScopeStatus.Reason.Contains(err)) { _startError = err; _startErrorAt = Stopwatch.GetTimestamp(); }
                 RefreshNetworkDiagnostics();
                 IsEngineRunning = _packetEngine.IsRunning;
             });
@@ -1030,7 +1064,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 bool started = _packetEngine.BeginLegacyGlobalContinuous(DiagnosticMode.None);
                 // ErrorOccurred is dispatched asynchronously. Preserve the refusal
                 // synchronously too, otherwise START RESULT falsely looks stopped/ready.
-                if (!started) _startError = _packetEngine.ScopeStatus.Reason;
+                if (!started) { _startError = _packetEngine.ScopeStatus.Reason; _startErrorAt = Stopwatch.GetTimestamp(); }
                 AddLog(started
                     ? "[GLOBAL] START: filtro outbound ARMADO, SEM efeito. Espaço dispara um pulso; STOP fecha a captura."
                     : "[GLOBAL] Não foi possível iniciar. Verifique driver/administrador e diagnóstico.");
@@ -1110,9 +1144,10 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         ThrottleEnabled = s.ThrottleEnabled; CustomDurationMs = s.DurationMs; DropPercentage = s.DropPercentage;
         ThrottleTimeframeMs = s.RetentionMs; ThrottleChance = s.Chance; ThrottleReleaseDelayMs = s.SpacingMs;
         ThrottleJitterMs = s.JitterMs; SelectedHotkeyName = s.Hotkey; OnlyTargetForeground = s.OnlyTargetForeground;
-        DiagnosticCycleDurationMs = s.DiagnosticDurationMs;
         _selectedPulseStyle = EffectExperienceCatalog.StyleName(s.PulseStyle);
+        DiagnosticCycleDurationMs = s.DiagnosticDurationMs;
         OnPropertyChanged(nameof(SelectedPulseStyle)); OnPropertyChanged(nameof(PulseStyleHelpText));
+        RefreshPulseStyle();
         GlobalDelayMs = s.GlobalDelayMs;
         BurstLossPercentage = s.BurstLossPercentage;
         AsymmetricInboundLossPercentage = s.AsymmetricInboundPercentage;

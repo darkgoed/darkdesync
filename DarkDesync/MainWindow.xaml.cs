@@ -56,10 +56,10 @@ public partial class MainWindow : Window
 
     private void StartStop_PreviewKey(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        // A mouse click leaves STOP focused. WPF would otherwise interpret the
-        // configured Space hotkey as Button.OnClick on key-up and stop capture.
-        // Only consume this control's local activation; the global hook remains
-        // pass-through and retains its physical-edge/injected-input safeguards.
+        // Space is the global pulse key, never local button/radio activation.
+        // Applies across the panel, not only STOP: focus cannot change a preset,
+        // toggle manual mode or fire a duplicate manual pulse on key-up.
+        // Enter/Tab/arrow navigation remain standard; the OS hook is pass-through.
         if (e.Key == System.Windows.Input.Key.Space && _viewModel.SelectedHotkeyName == "Espaço")
             e.Handled = true;
     }
