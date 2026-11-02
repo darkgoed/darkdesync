@@ -27,7 +27,12 @@ public static class ModeCatalog
         ["Heavy-Tail Jitter"] = DiagnosticMode.HeavyTailJitter,
         ["Adaptive Queue Shaping"] = DiagnosticMode.AdaptiveQueueShaping,
         ["Gap-Based Reordering"] = DiagnosticMode.GapBasedReordering,
-        ["Gilbert–Elliott Burst Loss"] = DiagnosticMode.GilbertElliottBurstLoss
+        ["Gilbert–Elliott Burst Loss"] = DiagnosticMode.GilbertElliottBurstLoss,
+        ["Packet Duplication"] = DiagnosticMode.PacketDuplication,
+        ["ECN Congestion Marking"] = DiagnosticMode.EcnCongestionMarking,
+        ["DSCP Traffic Marking"] = DiagnosticMode.DscpTrafficMarking,
+        ["MTU / Fragmentation · laboratório local"] = DiagnosticMode.MtuFragmentationLab,
+        ["TCP ACK Pacing"] = DiagnosticMode.TcpAckPacing
     };
     public static IReadOnlyDictionary<string, DiagnosticMode> Choices { get; } =
         PersonalRanking250ms.Concat(LegacyLabels.Values.Except(PersonalRanking250ms))
@@ -35,7 +40,8 @@ public static class ModeCatalog
 
     // Keep legacy identities/parser, but expose only genuine global outbound effects.
     public static IReadOnlyDictionary<string, DiagnosticMode> OutboundChoices { get; } =
-        Choices.Where(p => PersonalRanking250ms.Contains(p.Value) || p.Value == DiagnosticMode.BandwidthShaping)
+        Choices.Where(p => PersonalRanking250ms.Contains(p.Value) || p.Value == DiagnosticMode.BandwidthShaping ||
+            p.Value is >= DiagnosticMode.PacketDuplication and <= DiagnosticMode.TcpAckPacing)
             .ToDictionary(p => p.Key, p => p.Value);
 
     private static string Label(DiagnosticMode mode)

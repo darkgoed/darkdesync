@@ -61,6 +61,7 @@
      <Border x:Name="EffectRatingChip" Background="{Binding EffectRatingBackground}" CornerRadius="10" Padding="9,4" HorizontalAlignment="Left"><TextBlock x:Name="EffectRatingLabel" Text="{Binding EffectRatingText}" Foreground="{Binding EffectRatingForeground}" FontWeight="SemiBold" FontSize="11" /></Border>
      <TextBlock x:Name="EffectRatingNote" Text="{Binding EffectRatingNote}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,8,0,8" MaxHeight="74" FontSize="11" />
      <TextBlock Text="Sobre este efeito" Foreground="{StaticResource TextMutedBrush}" FontSize="11" ToolTip="{Binding EffectSupportText}" />
+     <TextBlock Text="{Binding MtuLabSummary}" Visibility="{Binding IsMtuLabSelected, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0" />
     </StackPanel>
     <StackPanel Grid.Column="2" x:Name="DurationArea">
      <TextBlock Text="ESTILO · PRÓXIMO PULSO" Foreground="{StaticResource TextMutedBrush}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,10" />
@@ -71,6 +72,7 @@
      <TextBlock Text="{Binding PulseStyleHelpText}" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,8,0,12" MinHeight="30" />
      <Grid><CheckBox x:Name="ManualDurationToggle" Content="Teste manual" IsChecked="{Binding IsManualDurationEnabled}" VerticalAlignment="Center" TabIndex="3" /><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><TextBox x:Name="DurationEditor" Text="{Binding DiagnosticCycleDurationMs, UpdateSourceTrigger=PropertyChanged}" Width="64" Padding="8,5" IsEnabled="{Binding IsManualDurationEnabled}" TabIndex="4" AutomationProperties.Name="Duração manual em milissegundos" /><TextBlock Text="ms" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="7,0,0,0" /></StackPanel></Grid>
      <Slider x:Name="DurationSlider" Minimum="0" Maximum="800" Value="{Binding DiagnosticCycleDurationMs}" IsEnabled="{Binding IsManualDurationEnabled}" SmallChange="5" LargeChange="50" TabIndex="5" Margin="0,6,0,0" AutomationProperties.Name="Ajuste manual do próximo pulso" />
+     <Grid Visibility="{Binding IsDscpSelected, Converter={StaticResource BoolVisibility}}" Margin="0,6,0,0"><TextBlock Text="DSCP · próximo pulso (0–63)" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" /><TextBox x:Name="DscpEditor" Text="{Binding DscpCodepoint, UpdateSourceTrigger=PropertyChanged}" Width="64" HorizontalAlignment="Right" Padding="8,4" AutomationProperties.Name="DSCP de zero a 63" /></Grid>
     </StackPanel>
    </Grid>
    <Grid Grid.Row="2" Margin="0,12,0,0">

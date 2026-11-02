@@ -340,6 +340,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(SelectedOutboundEffect));
                 OnPropertyChanged(nameof(EffectSupportText));
                 RefreshEffectRating();
+                OnPropertyChanged(nameof(IsDscpSelected)); OnPropertyChanged(nameof(IsMtuLabSelected));
                 CancelCurrentPulse();
                 ExperimentalOptIn = false;
                 GlobalPacketSizeConsent = false;
@@ -383,13 +384,30 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     public string EffectSupportText => ModeCatalog.Parse(_selectedDiagnosticModeText) switch
     {
+        DiagnosticMode.PacketDuplication => "UDP IPv4/IPv6 até 1400 bytes IP: uma cópia extra, até 16 cópias/32 KiB por pulso. TCP, fragmentos/extensões passam; sem ganho garantido em jogo.",
+        DiagnosticMode.EcnCongestionMarking => "IPv4/IPv6 TCP/UDP até 4096 bytes: ECT(0)/ECT(1) vira CE; Not-ECT e CE passam. Checksums corrigidos; endpoints podem ignorar ECN.",
+        DiagnosticMode.DscpTrafficMarking => "DSCP configurado (0–63) em IPv4/IPv6 TCP/UDP até 4096 bytes; preserva ECN e corrige checksums. Roteadores podem ignorar/remarcar; não obriga prioridade.",
+        DiagnosticMode.MtuFragmentationLab => "Só ensaio IPv4/UDP em loopback próprio: MTU lido e payloads com DF ligado/desligado. Não fragmenta tráfego global, não prova WAN/reassemblagem nem altera MTU/rotas/IPv6 PMTUD.",
+        DiagnosticMode.TcpAckPacing => "Só ACK TCP puro IPv4/IPv6: FIFO por fluxo, alvo 12 ms, TTL 64 ms limitado ao pulso. Data/piggyback/controle drenam ACKs antes de passar. UDP passa; pode afetar retransmissão. STOP drena.",
         DiagnosticMode.GilbertElliottBurstLoss => "Perda intencional em rajadas (IPv4 TCP/UDP). TCP pode retransmitir. Somente pulso explícito, até 800 ms; IPv6/ICMP passam sem efeito.",
         DiagnosticMode.GapBasedReordering => "Reordena somente UDP IPv4 no mesmo fluxo, com gap de 1 pacote e TTL de 24 ms. TCP, IPv6 e ICMP passam sem efeito.",
         var mode when OutboundPulseScheduler.Handles(mode) => "Pacing/jitter IPv4 TCP/UDP, limitado ao pulso. IPv6, ICMP e fragmentos passam sem efeito; STOP libera pendências.",
         _ => "START apenas arma; Espaço ou Pulso manual aplica o efeito. STOP libera pendências."
     };
 
-    // One next-pulse duration shared by the four visible favorites.
+    public bool IsDscpSelected => ModeCatalog.Parse(_selectedDiagnosticModeText) == DiagnosticMode.DscpTrafficMarking;
+    public bool IsMtuLabSelected => ModeCatalog.Parse(_selectedDiagnosticModeText) == DiagnosticMode.MtuFragmentationLab;
+    private int _dscpCodepoint = 8;
+    public int DscpCodepoint
+    {
+        get => _dscpCodepoint;
+        set { if (SetProperty(ref _dscpCodepoint, Math.Clamp(value, 0, 63)) && _packetEngine != null) _packetEngine.DscpCodepoint = _dscpCodepoint; }
+    }
+    public string MtuLabSummary => _packetEngine?.LastMtuReport is { } report
+        ? $"Último ensaio: {report.Probes.Count} sondas · MTU loopback {report.InterfaceMtu?.ToString() ?? "indisponível"} · maior IP entregue {report.LargestDeliveredIpBytes} B · fragmentação não comprovada."
+        : "Pulso executa somente sondas UDP no loopback próprio. Sem fragmentação global.";
+
+    // One next-pulse duration shared by favorites and explicitly selected techniques.
     public IReadOnlyList<string> PulseStyleOptions { get; } = EffectExperienceCatalog.PrimaryStyles;
     public ICommand SelectPulseStyleCommand { get; }
     public bool IsLegitStyle { get => _selectedPulseStyle == "Legit"; set { if (value) SelectedPulseStyle = "Legit"; } }
@@ -661,6 +679,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(CaptureStateText));
         OnPropertyChanged(nameof(CompactStartErrorText));
         OnPropertyChanged(nameof(CompactStateText));
+        OnPropertyChanged(nameof(MtuLabSummary));
         OnPropertyChanged(nameof(StatusColorBrush));
         var s = _packetEngine.ScopeStatus;
         if (_outboundOnly)
@@ -1124,6 +1143,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 FilterMode = GetFilterMode(), CustomFilter = CustomFilterText,
                 DiagnosticDurationMs = DiagnosticCycleDurationMs, GlobalDelayMs = GlobalDelayMs,
                 PulseStyle = EffectExperienceCatalog.Styles[_selectedPulseStyle],
+                DscpCodepoint = DscpCodepoint,
                 BurstLossPercentage = BurstLossPercentage,
                 AsymmetricInboundPercentage = AsymmetricInboundLossPercentage,
                 AsymmetricOutboundPercentage = AsymmetricOutboundLossPercentage,
@@ -1153,6 +1173,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(SelectedPulseStyle)); OnPropertyChanged(nameof(PulseStyleHelpText));
         RefreshPulseStyle();
         GlobalDelayMs = s.GlobalDelayMs;
+        DscpCodepoint = s.DscpCodepoint;
         BurstLossPercentage = s.BurstLossPercentage;
         AsymmetricInboundLossPercentage = s.AsymmetricInboundPercentage;
         AsymmetricOutboundLossPercentage = s.AsymmetricOutboundPercentage;
@@ -1174,6 +1195,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             OnPropertyChanged(nameof(SelectedOutboundEffect));
             OnPropertyChanged(nameof(EffectSupportText));
             OnPropertyChanged(nameof(IsGlobalPacketSizeSelected));
+            OnPropertyChanged(nameof(IsDscpSelected)); OnPropertyChanged(nameof(IsMtuLabSelected));
             RefreshEffectRating();
         }
         else SelectedDiagnosticModeText = ModeCatalog.Name(s.DiagnosticMode);

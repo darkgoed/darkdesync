@@ -147,7 +147,9 @@ internal static partial class Program
                 ClickStart(); Stopped();
                 if (engine.IntentionalBurstDrops == lossBefore)
                     Require(Await(receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer.Length == 900, "STOP drains own UDP or GE passes");
-                Await(Task.Delay(40)); Require(receiver.Available == 0, "No duplication");
+                if (mode == DiagnosticMode.PacketDuplication && engine.DuplicateCopiesSent > 0)
+                    Require(Await(receiver.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer.Length == 900, "One bounded UDP copy");
+                Await(Task.Delay(40)); Require(receiver.Available == 0, "No extra duplicates after STOP");
                 if (mode != DiagnosticMode.GilbertElliottBurstLoss) Require(engine.PacketsDropped == 0, "Non-loss profile cannot discard");
                 Console.WriteLine("PASS outbound-only UIA/native: " + mode + "; no PID; enabled START; ARMADO/PULSO/PARADO; exact outbound; own TCP/UDP; focused Space; STOP drain");
             }

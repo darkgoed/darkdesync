@@ -27,7 +27,7 @@ public sealed class ThrottledPacket
 ///   then releases them in bursts or with controlled speed (release delay ms).
 /// - Transparent Pass-Through: In IDLE / RESTORING states, re-injects all packets.
 /// </summary>
-public sealed class PacketEngine : IDisposable
+public sealed partial class PacketEngine : IDisposable
 {
     private readonly ILogger<PacketEngine> _logger;
     private readonly ProcessNetworkScanner _scanner;
@@ -334,6 +334,7 @@ public sealed class PacketEngine : IDisposable
             Interlocked.Exchange(ref _tcpIntercepted, 0); Interlocked.Exchange(ref _udpIntercepted, 0);
             Interlocked.Exchange(ref _tcpDropped, 0); Interlocked.Exchange(ref _udpDropped, 0);
             Interlocked.Exchange(ref _tcpHeld, 0); Interlocked.Exchange(ref _udpHeld, 0);
+            ResetTechniqueCounters();
         }
         _captureRequested = true;
         ReconcileScope();
@@ -552,6 +553,7 @@ public sealed class PacketEngine : IDisposable
             Interlocked.Exchange(ref _scheduledReleased, 0);
             Interlocked.Exchange(ref _reorderedPairs, 0);
             Interlocked.Exchange(ref _reinjectionFailures, 0);
+            ResetTechniqueCounters();
             try
             {
                 ReplaceNetworkScope("outbound", []);
@@ -630,6 +632,21 @@ public sealed class PacketEngine : IDisposable
     public long ScheduledPacketsReleased => Interlocked.Read(ref _scheduledReleased);
     public double AdaptiveTargetBytesPerSecond { get { lock (_packetLock) return _outboundScheduler?.TargetBytesPerSecond ?? 0; } }
     private ScopedPulseScheduler? _scopedScheduler;
+    private AckPulseQueue? _ackQueue;
+    private int _duplicationBudget, _duplicationBytes, _pulseDscp;
+    private int _dscpCodepoint = 8;
+    public int DscpCodepoint { get => Volatile.Read(ref _dscpCodepoint); set => Volatile.Write(ref _dscpCodepoint, Math.Clamp(value, 0, 63)); }
+    private long _duplicateCopiesSent, _ecnMarked, _dscpMarked, _acksHeld, _acksReleased;
+    public long DuplicateCopiesSent => Interlocked.Read(ref _duplicateCopiesSent);
+    public long EcnPacketsMarked => Interlocked.Read(ref _ecnMarked);
+    public long DscpPacketsMarked => Interlocked.Read(ref _dscpMarked);
+    public long PureAcksHeld => Interlocked.Read(ref _acksHeld);
+    public long PureAcksReleased => Interlocked.Read(ref _acksReleased);
+    private CancellationTokenSource? _mtuCancellation;
+    private Task? _mtuTask;
+    private MtuLabReport? _lastMtuReport;
+    public MtuLabReport? LastMtuReport { get { lock (_packetLock) return _lastMtuReport; } }
+    internal Task? MtuLabWork { get { lock (_packetLock) return _mtuTask; } }
     private DiagnosticMode _armedScopeProfile;
     internal DiagnosticMode ArmedScopeProfile { get { lock (_lifecycleLock) return _armedScopeProfile; } }
     internal FilterMode ConfiguredFilterMode { get { lock (_lifecycleLock) return _filterMode; } }
@@ -745,6 +762,7 @@ public sealed class PacketEngine : IDisposable
                 !Enum.IsDefined(mode) || durationMs <= 0) return false;
             ExpireArmedEffectLocked();
             if (_stateMachine.Current != DesyncStateMachine.State.Armed) return false;
+            if (mode == DiagnosticMode.MtuFragmentationLab && _mtuTask is { IsCompleted: false }) return false;
             if (_filterMode == FilterMode.LegacyGlobalOutbound && mode == DiagnosticMode.None) return false;
             if (ProfileCompatibilityError(mode, _filterMode) != null) return false;
             if (_filterMode == FilterMode.LegacyGlobalOutbound && mode == DiagnosticMode.PacketSizeAwareShaping && !GlobalPacketSizeConsent) return false;
@@ -760,6 +778,9 @@ public sealed class PacketEngine : IDisposable
             _outboundScheduler = OutboundPulseScheduler.Handles(mode)
                 ? new OutboundPulseScheduler(mode, _effectStartedTicks, _effectDeadline, OutboundSeedOverride ?? Random.Shared.Next()) : null;
             _scopedScheduler = IsScopedProfile(mode) ? new ScopedPulseScheduler(mode, _effectStartedTicks) : null;
+            _ackQueue = mode == DiagnosticMode.TcpAckPacing ? new AckPulseQueue(_effectDeadline) : null;
+            _duplicationBudget = _duplicationBytes = 0; _pulseDscp = DscpCodepoint;
+            if (mode == DiagnosticMode.MtuFragmentationLab) StartMtuLabLocked(generation);
             LastShapingFallback = null;
             _activeDiagnosticMode = mode;
             _stateMachine.TryActivateArmed();
@@ -797,6 +818,7 @@ public sealed class PacketEngine : IDisposable
     {
         Interlocked.Increment(ref _armedGeneration); // Also revokes queued hotkeys on profile cancellation.
         ++_effectGeneration;
+        _mtuCancellation?.Cancel();
         _effectTimer?.Dispose(); _effectTimer = null;
         _effectDeadline = 0;
         _activeDiagnosticMode = DiagnosticMode.None;
@@ -889,9 +911,11 @@ public sealed class PacketEngine : IDisposable
         _cts?.Cancel();
         RetireCaptureEpoch();
         _throttleReleaseTask?.GetAwaiter().GetResult();
+        _mtuTask?.GetAwaiter().GetResult();
         _throttleReleaseTask = null;
         lock (_packetLock)
         {
+            _mtuCancellation?.Dispose(); _mtuCancellation = null;
             FlushThrottleQueueLocked();
             CloseNetworkHandle();
             _scopedConnections = [];
@@ -1086,6 +1110,8 @@ public sealed class PacketEngine : IDisposable
             }
 
             // Diagnostic Mode evaluation: restricted strictly to authorized test traffic
+            if (active && _armedCapture && _activeDiagnosticMode is >= DiagnosticMode.PacketDuplication and <= DiagnosticMode.TcpAckPacing)
+                return ProcessTechniquePacket(packetBuffer, recvLen, addr);
             if (active && _armedCapture && _outboundScheduler != null)
                 return ProcessOutboundScheduledPacket(packetBuffer, recvLen, addr);
 
@@ -1715,6 +1741,8 @@ public sealed class PacketEngine : IDisposable
         lock (_packetLock)
         {
             ExpireArmedEffectLocked();
+            if (_ackQueue != null && _ackQueue.TryDequeue(now, out var ack))
+            { SendThrottledPacket(ack!); Interlocked.Increment(ref _acksReleased); return true; }
             if (_outboundScheduler != null)
             {
                 long before = _outboundScheduler.ReorderedPairs;
@@ -1765,6 +1793,11 @@ public sealed class PacketEngine : IDisposable
 
     private void FlushThrottleQueueLocked()
     {
+        if (_ackQueue != null)
+        {
+            foreach (var ack in _ackQueue.Drain()) { SendThrottledPacket(ack); Interlocked.Increment(ref _acksReleased); }
+            _ackQueue = null;
+        }
         if (_outboundScheduler != null)
         {
             foreach (var packet in _outboundScheduler.Drain())

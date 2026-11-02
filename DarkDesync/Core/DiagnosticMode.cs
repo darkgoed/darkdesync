@@ -46,5 +46,10 @@ public enum DiagnosticMode
     HeavyTailJitter = 27,
     AdaptiveQueueShaping = 28,
     GapBasedReordering = 29,
-    GilbertElliottBurstLoss = 30
+    GilbertElliottBurstLoss = 30,
+    PacketDuplication = 31,
+    EcnCongestionMarking = 32,
+    DscpTrafficMarking = 33,
+    MtuFragmentationLab = 34,
+    TcpAckPacing = 35
 }

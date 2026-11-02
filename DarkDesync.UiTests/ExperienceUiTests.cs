@@ -22,7 +22,7 @@ internal static partial class Program
         var label = (TextBlock)window.FindName("EffectRatingLabel");
         var note = (TextBlock)window.FindName("EffectRatingNote");
         var slider = Descendants(window).OfType<Slider>().Single();
-        var editor = Descendants(window).OfType<TextBox>().Single();
+        var editor = (TextBox)window.FindName("DurationEditor");
         void Check(string text, string color, int ms)
         {
             Pump(); Require(label.Text == text && ((SolidColorBrush)chip.Background).Color.ToString() == "#FF" + color[1..], "Rendered rating label and accessible chip color");
