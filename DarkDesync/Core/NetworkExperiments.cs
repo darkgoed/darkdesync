@@ -62,7 +62,7 @@ internal static class NetworkExperiments
             return Report(id, ExperimentStatus.Unavailable, cancellationToken.IsCancellationRequested ? "STOP: ensaio cancelado; recursos liberados." : "Prazo de 25 s excedido; ensaio não comprovado.", new { Cancelled = true });
         }
         catch (Exception ex) when (ex is SocketException or System.ComponentModel.Win32Exception or PlatformNotSupportedException or
-            System.Net.NetworkInformation.PingException or System.IO.IOException or InvalidOperationException or JsonException or ArgumentException or DllNotFoundException or TimeoutException)
+            System.Net.NetworkInformation.PingException or System.IO.IOException or InvalidOperationException or JsonException or ArgumentException or DllNotFoundException or TimeoutException or KeyNotFoundException or FormatException)
         { return Report(id, ExperimentStatus.Unavailable, ex.GetType().Name + ": " + ex.Message, new { Error = ex.HResult }); }
     }
     private static ExperimentReport Report(NetworkExperiment id, ExperimentStatus status, string summary, object evidence) =>
@@ -206,7 +206,7 @@ internal static class NetworkExperiments
 
     private static async Task<ExperimentReport> NatAsync(NatLabEndpoint lab, CancellationToken ct)
     {
-        ValidateNat(lab); var trials = new List<object>(); bool delayed = false; bool external = false;
+        ValidateNat(lab); var trials = new List<object>(); bool translatedSurvived = false; bool external = false;
         foreach (int idle in new[] { 1, 3, 6 })
         {
             ct.ThrowIfCancellationRequested();
@@ -224,16 +224,23 @@ internal static class NetworkExperiments
                 return json;
             }
             var initial = await Receive("baseline");
+            // Baseline inbound can itself refresh NAT. Start only after receiving it;
+            // never trust the reflector's requested delay as measured idle time.
+            var quiet = Stopwatch.StartNew();
             string mapped = initial.GetProperty("address").GetString()!; int port = initial.GetProperty("port").GetInt32();
-            bool translated = mapped != ((IPEndPoint)socket.Client.LocalEndPoint!).Address.ToString() || port != ((IPEndPoint)socket.Client.LocalEndPoint!).Port;
+            if (!IPAddress.TryParse(mapped, out var mappedIp) || port is < 1 or > 65535 || mappedIp.Equals(IPAddress.Any) || mappedIp.Equals(IPAddress.IPv6Any) || mappedIp.IsIPv6Multicast || (mappedIp.AddressFamily == AddressFamily.InterNetwork && mappedIp.GetAddressBytes()[0] >= 224))
+                throw new InvalidOperationException("Invalid reflected endpoint");
+            bool translated = !mappedIp.Equals(((IPEndPoint)socket.Client.LocalEndPoint!).Address) || port != ((IPEndPoint)socket.Client.LocalEndPoint!).Port;
             external |= translated; bool survived;
             try { var after = await Receive("delayed"); survived = after.GetProperty("address").GetString() == mapped && after.GetProperty("port").GetInt32() == port; }
             catch (TimeoutException) { survived = false; }
-            delayed |= survived;
-            trials.Add(new { IdleSeconds = idle, MappedAddress = mapped, MappedPort = port, TranslationObserved = translated, DelayedInboundReceived = survived, ClientPacketsSent = 1,
-                Interpretation = survived ? "Sobrevivência >= intervalo; não é timeout exato" : "Inconclusivo: perda/filtro/timeout; expiração não provada" });
+            double elapsed = quiet.Elapsed.TotalSeconds;
+            translatedSurvived |= survived && translated;
+            trials.Add(new { IdleSeconds = idle, MeasuredQuietSeconds = elapsed, SurvivalLowerBoundSeconds = survived ? (double?)elapsed : null,
+                MappedAddress = mapped, MappedPort = port, TranslationObserved = translated, DelayedInboundReceived = survived, ClientPacketsSent = 1,
+                Interpretation = survived ? "Sobrevivência >= silêncio MEDIDO localmente, não intervalo solicitado; não é timeout exato" : "Inconclusivo: perda/filtro/timeout; expiração não provada" });
         }
-        return Report(NetworkExperiment.UdpNatLifetime, delayed && external ? ExperimentStatus.Operational : ExperimentStatus.RequiresLab,
+        return Report(NetworkExperiment.UdpNatLifetime, translatedSurvived ? ExperimentStatus.Operational : ExperimentStatus.RequiresLab,
             external ? "Reflexão própria medida; sobrevivência por inbound atrasado sem keepalive. Sem prova de expiração exata." : "Protocolo reflexivo executado, mas sem tradução observada: não comprova NAT externo.", trials);
     }
 }

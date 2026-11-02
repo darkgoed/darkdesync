@@ -98,6 +98,11 @@ public sealed class NetworkExperimentTests
         await server;
         Assert.Equal(ExperimentStatus.RequiresLab, report.Status);
         var trials = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(report.Evidence)); Assert.Equal(3, trials.GetArrayLength());
-        foreach (var trial in trials.EnumerateArray()) { Assert.True(trial.GetProperty("DelayedInboundReceived").GetBoolean()); Assert.False(trial.GetProperty("TranslationObserved").GetBoolean()); Assert.Equal(1, trial.GetProperty("ClientPacketsSent").GetInt32()); }
+        foreach (var trial in trials.EnumerateArray())
+        {
+            Assert.True(trial.GetProperty("DelayedInboundReceived").GetBoolean()); Assert.False(trial.GetProperty("TranslationObserved").GetBoolean()); Assert.Equal(1, trial.GetProperty("ClientPacketsSent").GetInt32());
+            Assert.True(trial.GetProperty("MeasuredQuietSeconds").GetDouble() >= trial.GetProperty("IdleSeconds").GetInt32() - 0.1);
+            Assert.Equal(trial.GetProperty("MeasuredQuietSeconds").GetDouble(), trial.GetProperty("SurvivalLowerBoundSeconds").GetDouble());
+        }
     }
 }
