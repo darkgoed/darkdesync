@@ -16,6 +16,7 @@ internal static partial class Program
     private static int Main(string[] args)
     {
         if (args.Length == 5 && args[0] == "--uia-click") return RunExternalUiaClick(args);
+        if (args.Length == 3 && args[0] == "--uia-lab") return RunExternalLabUia(args);
         if (args.SequenceEqual(new[] { "--udp-sink" })) return RunUdpSink();
         if ((args.Length == 3 || args.Length == 4) && args[0] == "--udp-peer") return RunUdpPeer(args);
         if (args.SequenceEqual(new[] { "--driver-ui" })) return RunNativeUi();
@@ -50,6 +51,7 @@ internal static partial class Program
             Require(state.IsVisible && state.FontSize <= 14 && status.IsVisible, "Conspicuous capture state independent of pulse");
             Require(!vm.NetworkDiagnosticsText.Contains("TCP") && !vm.NetworkDiagnosticsText.Contains("UDP") && !vm.StartStatusText.Contains("PID"), "No protocol/PID prerequisites in the main flow");
             VerifyExperienceUi(window, vm, store, engine);
+            VerifyNetworkExperimentUi(window, engine);
             VerifyCompactPanelUi(window, vm, engine, "artifacts/tests/screenshots");
             foreach (string effect in vm.DiagnosticModeOptions)
             {
