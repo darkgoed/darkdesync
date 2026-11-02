@@ -46,6 +46,7 @@
       <TextBlock Text="EFEITO" Style="{StaticResource SectionLabel}" />
       <CheckBox Content="Habilitado" IsChecked="{Binding CycleProfileEnabled, Mode=TwoWay}" Margin="0,0,0,12" />
       <ComboBox ItemsSource="{Binding DiagnosticModeOptions}" SelectedItem="{Binding SelectedDiagnosticModeText}" Margin="0,0,0,16" />
+      <CheckBox Content="Opt-in EXPERIMENTAL · reordenar UDP loopback próprio" IsChecked="{Binding ExperimentalOptIn}" Visibility="{Binding IsExperimentalSelected, Converter={StaticResource BoolVisibility}}" Margin="0,0,0,12" ToolTip="Somente laboratório autorizado. Não altera TCP, não garante efeitos Roblox. Consentimento não é salvo." />
       <Grid><TextBlock Text="Pulso · ms" /><TextBox Text="{Binding DiagnosticCycleDurationMs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True}" Width="78" HorizontalAlignment="Right" /></Grid>
       <Slider Minimum="0" Maximum="800" Value="{Binding DiagnosticCycleDurationMs, Mode=TwoWay}" SmallChange="5" LargeChange="50" Margin="0,6,0,0" />
      </StackPanel></Border>

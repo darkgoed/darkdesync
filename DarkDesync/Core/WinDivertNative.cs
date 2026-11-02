@@ -158,6 +158,7 @@ public static class WinDivertNative
         public bool Sniffed => ((Flags >> 16) & 1) != 0;
         public bool Outbound => ((Flags >> 17) & 1) != 0;
         public bool Loopback => ((Flags >> 18) & 1) != 0;
+        public bool Impostor => ((Flags >> 19) & 1) != 0;
         public bool IPv6 => ((Flags >> 20) & 1) != 0;
     }
 

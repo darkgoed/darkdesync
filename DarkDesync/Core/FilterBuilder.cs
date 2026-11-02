@@ -29,7 +29,7 @@ public sealed class FilterBuilder
         return raw;
     }
 
-    internal static string BuildScopedFilter(IEnumerable<ProcessNetworkScanner.ProcessEndpoint> endpoints, string restriction)
+    internal static string BuildScopedFilter(IEnumerable<ProcessNetworkScanner.ProcessEndpoint> endpoints, string restriction, bool loopbackReverse = false)
     {
         var connections = endpoints.Distinct().ToArray();
         if (connections.Length == 0 || connections.Length > 64 || connections.Any(e =>
@@ -40,7 +40,8 @@ public sealed class FilterBuilder
             string local = new IPAddress(e.LocalAddr).ToString();
             string remote = new IPAddress(e.RemoteAddr).ToString();
             string protocol = e.Protocol == 6 ? "tcp" : "udp";
-            return $"({protocol} and ((outbound and ip.SrcAddr == {local} and {protocol}.SrcPort == {e.LocalPort} and ip.DstAddr == {remote} and {protocol}.DstPort == {e.RemotePort}) or (inbound and ip.DstAddr == {local} and {protocol}.DstPort == {e.LocalPort} and ip.SrcAddr == {remote} and {protocol}.SrcPort == {e.RemotePort})))";
+            string incoming = loopbackReverse ? "(inbound or loopback)" : "inbound";
+            return $"({protocol} and ((outbound and ip.SrcAddr == {local} and {protocol}.SrcPort == {e.LocalPort} and ip.DstAddr == {remote} and {protocol}.DstPort == {e.RemotePort}) or ({incoming} and ip.DstAddr == {local} and {protocol}.DstPort == {e.LocalPort} and ip.SrcAddr == {remote} and {protocol}.SrcPort == {e.RemotePort})))";
         });
         // Outer scope cannot be escaped by an 'or true' in the custom restriction.
         return $"ip and ({string.Join(" or ", clauses)}) and ({restriction})";

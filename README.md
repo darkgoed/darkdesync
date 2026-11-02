@@ -15,22 +15,35 @@ Execute `artifacts/DarkDesync-win-x64/DarkDesync.exe` como administrador para ca
 
 ## Perfil, pulso e ciclo
 
-Selecione alvo/filtro, efeito, duração e atalho. A interface oferece somente seis efeitos de saída, sem descarte intencional, reordenação por fluxo ou duplicação:
+Selecione alvo/filtro, efeito, duração e atalho. A interface oferece nove perfis sem descarte intencional ou duplicação. Os quatro aprovados conservam seus caminhos funcionais:
 
 - Outbound Freeze: retém saída; entrada não é retida. Libera a fila na conclusão/cancelamento.
 - Bandwidth Shaping: agenda serialização a 16 KiB/s, contabilizada por bytes IP, sem descarte. A resolução do worker agrupa pacotes com prazos próximos; o flush final não está sujeito ao limite de vazão.
-- Hold-and-Drain Shaping: retém durante os primeiros 40% do pulso (80 ms no padrão); depois acumula crédito a 32 KiB/s e libera FIFO, com crédito máximo de 1536 bytes IP.
-- Rate-Step Shaping: orçamento integrado a 4 KiB/s na primeira metade e 32 KiB/s na segunda, sem crédito inicial e com limite de 1536 bytes. A transição depende do tempo do pulso, não do prazo individual de pacotes.
+
 - Dual Token Bucket: cada envio exige bytes nos DOIS buckets: média 8 KiB/s (capacidade 2048 bytes, crédito inicial 1024) e pico 32 KiB/s (capacidade 1536 bytes, crédito inicial zero). Débito no momento real de liberação; tokens não crescem indefinidamente.
 - Flow-Aware Shaping: filas e buckets independentes por protocolo/IPs/portas IPv4 TCP/UDP; 8 KiB/s por fluxo, crédito inicial zero, limite 1536 bytes e seleção round-robin. FIFO por fluxo; NÃO há ordenação global entre conexões nem limite agregado equivalente ao Bandwidth Shaping.
 
-A duração visível é única para os seis modos: 0–800 ms, padrão 200 ms. 0 desativa o pulso. Os quatro novos modos usam presets fixos, sem controles extras. O worker verifica liberação a cada aproximadamente 4 ms, em turnos limitados a 64 envios; não se garante precisão de tempo real no Windows. Ao vencer/cancelar o pulso, toda a fila é reinjetada com FIFO por fluxo, mesmo para pacotes capturados perto do fim. O flush final/cancelamento/STOP não obedece aos limites de vazão: segurança e ausência de retenção indefinida prevalecem. Entrada não é retida por estes modos.
+Cinco mecanismos novos, em scheduler separado e SOMENTE PID estrito (nunca GLOBAL):
+
+| Perfil | Padrão conservador | Ordem |
+| --- | --- | --- |
+| Inbound Bandwidth Shaping | Recebidos a 16 KiB/s agregados por bytes IP; crédito inicial zero, burst máximo 1536 bytes. Outbound sem efeito. | FIFO por fluxo, seleção round-robin |
+| Correlated Inbound Jitter | Recebidos: AR(1) com coeficiente 0,85; inovação ±12 ms a cada época de 20 ms; centro 60 ms, limites 20–100 ms, seed 731. Não é delay independente por pacote. | FIFO por fluxo; deadlines monotônicos |
+| Packet Size-Aware Shaping | UDP outbound: classes por bytes IP ≤256 / ≤768 / >768; serviço 32/16/8 KiB/s e intervalos mínimos 4/12/24 ms. Não infere conteúdo pelo tamanho. | FIFO por fluxo; sem bloqueio entre filas |
+| Asymmetric Duplex Shaping | Inbound contínuo 8 KiB/s; outbound 32 KiB/s, aberto 20 de cada 60 ms. Orçamentos independentes e prova de PID nas duas direções. | FIFO por fluxo/direção; encerramento atômico |
+| Controlled Packet Reordering — EXPERIMENTAL | Só UDP loopback próprio; opt-in explícito não persistido. Troca pares adjacentes, deslocamento máximo de um datagrama; singleton sai após 20 ms. Nunca TCP nem suas sequências. | Pares intencionalmente fora de ordem; STOP cancela trocas pendentes e libera retidos antes de retornar |
+
+A duração é única: 0–800 ms, padrão 200 ms; 0 desativa. O worker verifica liberação a cada aproximadamente 4 ms, em turnos de até 64 envios, sem garantia de tempo real. O flush final/cancelamento/STOP não obedece à vazão: liberação segura prevalece. Nos novos modos: 512 pacotes, 786432 bytes IP, 128 fluxos históricos por pulso e 1536 bytes por pacote. Saturação/oversize/perda de prova cancela e drena antes do pacote atual. Timer e deadline nos caminhos de captura/release limitam retenção ao pulso; STOP usa flush síncrono sob o mesmo lock para ambas as direções, sem tarefas de pacotes sobreviventes. Retirar o opt-in também cancela e drena. O contador de pares reordenados mede tentativas intencionais, separado das falhas de envio/perdas reais.
+
+Os novos filtros usam apenas tuplas completas comprovadas, com `not impostor`. Uma restrição customizada só reduz esse conjunto. WinDivert reporta loopback como outbound: a direção lógica recebida é comprovada pela tupla reversa do PID, mantendo endereço nativo na reinjeção. Se ambos os sockets loopback pertencem ao alvo, direção ambígua passa livre. IPv6, fragmentos, cabeçalhos inválidos e binding compartilhado passam sem efeito. Reinjeção no mesmo handle não é recapturada; impostors de outros injetores são excluídos.
+
+Fixtures UDP/TCP determinísticas validam direção, FIFO, clock/seed, cancelamento e limites; o driver Windows dos novos perfis gera somente UDP loopback próprio com PID filho. Isso NÃO comprova inbound nativo de interface física, redes adversas nem jogos de terceiros. WinDivert/Windows pode perder tráfego por fila do kernel, fechamento, falhas de envio ou condições adversas. Não se promete zero perda real. Reordering não garante efeitos Roblox; não há testes/autorização em jogos de terceiros nem instruções para vantagem em partidas públicas.
 
 START apenas arma a captura, SEM efeito, tanto no GLOBAL quanto no estrito. Só depois de START, “Pulso manual” ou o atalho configurado (padrão Espaço) inicia UM ciclo temporizado. Espaço com o motor parado não abre captura. Não existe ciclo periódico/automático. Uma tecla mantida não repete; novos acionamentos durante um ciclo são ignorados. O hook nunca consome a tecla: Espaço continua chegando à aplicação, inclusive para o pulo normal. A opção de foco limita o acionamento à janela selecionada. F6/F7/F8 não são atalhos próprios dos modos.
 
-Ao terminar/cancelar o pulso, libera as filas (FIFO por fluxo) e volta ao estado ARMADO, sem efeito, com o mesmo handle de captura. Flags antigas de throttle contínuo e Drop100 não selecionam efeitos ocultos. Trocar efeito cancela o pulso e preserva a captura armada; trocar filtro/alvo exige novo START. “STOP”, carregar/padrões e fechar cancelam o pulso, liberam a fila e encerram a captura. Salvar preserva efeito, duração, filtro e atalho em `%LOCALAPPDATA%/DarkDesync/settings.json`; o alvo não é persistido.
+Ao terminar/cancelar, libera as filas e volta a ARMADO, sem efeito. Reordering cancela trocas ainda pendentes no flush. Flags antigas de throttle contínuo e Drop100 não selecionam efeitos ocultos. Trocar entre os quatro aprovados preserva a captura armada. Trocar de/para um dos cinco novos, filtro ou alvo exige novo START para instalar o escopo correto. “STOP”, carregar/padrões e fechar cancelam, liberam filas e encerram captura. Salvar preserva efeito, duração, filtro e atalho em `%LOCALAPPDATA%/DarkDesync/settings.json`; alvo e opt-in experimental não são persistidos.
 
-Configurações v1 continuam legíveis. Os valores numéricos do enum legado foram preservados; os novos são acrescentados. Ao carregar Burst Buffering, Slotted Transmission, Sawtooth Delay, Adaptive Freeze, Micro-Freeze, Smooth Delay, Soft Jitter, None/Desativado, Burst Loss, Asymmetric Loss, PacketDrop ou LatencyDelay, a seleção migra para Outbound Freeze e informa a migração no status. Duração salva e habilitação/desabilitação são respeitadas, a captura fica parada e o arquivo original NÃO é regravado ao carregar. Campos antigos continuam serializáveis para compatibilidade; apenas Salvar confirma a nova seleção. O painel de retenção, porcentagens de perda e Atraso (ms) não existem mais na interface. APIs legadas internas permanecem para compatibilidade e testes, não são modos disponíveis no combo.
+Configurações v1 continuam legíveis, com os números do enum preservados e os novos acrescentados. Hold-and-Drain Shaping e Rate-Step Shaping saíram da seleção; eles e todos os perfis anteriormente removidos migram em memória para Outbound Freeze com aviso. Duração e habilitação são respeitadas, captura fica parada e arquivo original NÃO é regravado ao carregar. Campos antigos continuam serializáveis; apenas Salvar confirma a seleção. APIs legadas internas permanecem para compatibilidade/testes, não são opções do combo. Os quatro favoritos mantêm compatibilidade de configurações.
 
 ## Outbound legado GLOBAL — START arma, Espaço dispara o efeito
 
@@ -60,7 +73,7 @@ WinDivert não permite trocar filtro nativamente no mesmo handle: a publicação
 
 ## Verificação e download
 
-Auditoria curta desta entrega: [quatro algoritmos de shaping e matriz de segurança](audit/FOUR_SHAPING_EFFECTS_20261102.md). TRX e evidência final do commit publicado acompanham a release.
+Auditoria desta entrega: [cinco mecanismos, matriz e limites](audit/FIVE_INBOUND_EXPERIMENTAL_20261102.md). Auditorias anteriores ficam preservadas. TRX e evidência do commit publicado acompanham a release. Os cinco novos recusam GLOBAL; essa saída mantém as opções dos quatro aprovados.
 
 GitHub Actions “Windows validation” compila, executa regressões e smoke WPF, e publica UMA pasta `DarkDesync-win-x64`. Driver real é opt-in em `workflow_dispatch` com `driver_tests=true`; só gera sockets TCP/UDP loopback próprios e falha sem driver. A suíte cobre os seis efeitos visíveis, APIs legadas e isolamento entre PIDs, TCP:443 inicial, UDP posterior promovido automaticamente, troca de filtro com tráfego, restart sem perder ledger, fechamento de UDP mantendo TCP/PID e encerramento do PID. Entrada é coberta sinteticamente: loopback WinDivert é reportado como saída. Em PowerShell elevado:
 
