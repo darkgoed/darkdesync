@@ -36,8 +36,9 @@ internal static partial class Program
         Process? child = null;
         try
         {
-            var app = new App(); app.InitializeComponent();
+            var app = new App(); app.InitializeComponent(); app.StartupUri = null;
             window = new MainWindow(new SettingsStore(Path.Combine(dir, "settings.json")));
+            app.MainWindow = window;
             window.Show(); Pump();
             var vm = (MainViewModel)window.DataContext;
             var engine = (PacketEngine)typeof(MainViewModel).GetField("_packetEngine", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(vm)!;
@@ -136,6 +137,7 @@ internal static partial class Program
                 }
                 ClickStart();
                 Require(engine.IsCaptureRequested && !engine.IsRunning && Equals(start.Content, "STOP") && vm.StatusText == "AGUARDANDO", "START waits honestly for exact tuple: " + mode);
+                Require(engine.ArmedScopeProfile == (PacketEngine.IsScopedProfile(mode) ? mode : DiagnosticMode.None) && engine.ConfiguredFilterMode == (PacketEngine.ProfileCompatibilityError(mode, FilterMode.Outbound) == null ? FilterMode.Outbound : FilterMode.AllTraffic), "START applied selected scope profile and filter");
                 ClickStart(); Stopped(); // STOP cancels wait through actual UIA.
                 ClickStart();
                 using var client = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
@@ -143,7 +145,7 @@ internal static partial class Program
                 Await(client.SendAsync(new byte[] { 41 }, 1));
                 Require(Await(client.ReceiveAsync().WaitAsync(TimeSpan.FromSeconds(5))).Buffer.SequenceEqual(new byte[] { 41 }), "Own child UDP reaches peer");
                 Until(() => engine.IsRunning && engine.ScopeStatus.UdpScoped > 0);
-                Require(status.Text.Contains("ARMADA"), "Live FLOW to NETWORK promotes high visible status");
+                Until(() => status.Text.Contains("ARMADA")); // UI telemetry is intentionally polled at 250 ms.
                 Require(engine.CurrentFilter.Contains("udp.SrcPort == " + port) && engine.CurrentFilter.Contains("udp.DstPort == " + port), "Exact child tuple, not just a broad port");
                 Require(engine.ActiveDiagnosticMode == DiagnosticMode.None && engine.PacketsThrottled == 0, "No effect at START");
                 InvokeButton(pulse); Require(engine.IsEffectActive, "Selected scoped effect activates only on pulse");

@@ -621,6 +621,8 @@ public sealed class PacketEngine : IDisposable
     private PulseShaper? _pulseShaper;
     private ScopedPulseScheduler? _scopedScheduler;
     private DiagnosticMode _armedScopeProfile;
+    internal DiagnosticMode ArmedScopeProfile { get { lock (_lifecycleLock) return _armedScopeProfile; } }
+    internal FilterMode ConfiguredFilterMode { get { lock (_lifecycleLock) return _filterMode; } }
     private long _reorderedPairs;
     public long IntentionallyReorderedPairs => Interlocked.Read(ref _reorderedPairs);
     private long _reinjectionFailures;

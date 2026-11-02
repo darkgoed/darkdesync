@@ -627,7 +627,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             s.Running ? "ARMADO" : s.Requested ? "AGUARDANDO tupla exata" :
             _startError != null ? "START recusado; detalhe local omitido por privacidade" : "PARADO";
         return $"filter={GetFilterMode()}; mode={ModeCatalog.Parse(SelectedDiagnosticModeText)}; pulseMs={DiagnosticCycleDurationMs}; enabled={CycleProfileEnabled}\n" +
-            $"globalUdpConsent={GlobalPacketSizeConsent}; experimental={ExperimentalOptIn}; foregroundOnly={OnlyTargetForeground}; hotkey={SelectedHotkeyName}; targetSelected={SelectedProcess is { ProcessId: > 0 }}\n" +
+            $"appliedFilter={_packetEngine?.ConfiguredFilterMode}; armedScopeProfile={_packetEngine?.ArmedScopeProfile}; globalUdpConsent={GlobalPacketSizeConsent}; experimental={ExperimentalOptIn}; foregroundOnly={OnlyTargetForeground}; hotkey={(AvailableHotkeys.ContainsKey(SelectedHotkeyName) ? SelectedHotkeyName : "unknown")}; targetSelected={SelectedProcess is { ProcessId: > 0 }}\n" +
             $"requested={_packetEngine?.IsCaptureRequested ?? false}; running={_packetEngine?.IsRunning ?? false}; FLOW={s.Observing}; Win32={(native.Success ? native.Groups[1].Value : "none")}\n" +
             $"reason={reason}; TCP observed/scoped={s.TcpObserved}/{s.TcpScoped}; UDP bindings/observed/eligible/scoped={s.UdpBindings}/{s.UdpObserved}/{s.UdpEligible}/{s.UdpScoped}";
     }
@@ -910,6 +910,9 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 _packetEngine.ConfigureScopedProfile(ModeCatalog.Parse(SelectedDiagnosticModeText));
                 _packetEngine.SetDropPercentage(DropPercentage);
                 bool started = _packetEngine.BeginLegacyGlobalContinuous(DiagnosticMode.None);
+                // ErrorOccurred is dispatched asynchronously. Preserve the refusal
+                // synchronously too, otherwise START RESULT falsely looks stopped/ready.
+                if (!started) _startError = _packetEngine.ScopeStatus.Reason;
                 AddLog(started
                     ? "[GLOBAL] START: filtro outbound ARMADO, SEM efeito. Espaço dispara um pulso; STOP fecha a captura."
                     : "[GLOBAL] Não foi possível iniciar. Verifique driver/administrador e diagnóstico.");
