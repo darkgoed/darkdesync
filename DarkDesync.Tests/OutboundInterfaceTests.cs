@@ -48,7 +48,8 @@ public sealed class OutboundInterfaceTests
             vm.ToggleEngineCommand.Execute(null);
             Assert.Equal(before + 1, opens); // Injected refusal, not a fabricated driver success.
             Assert.Contains("Win32 5", vm.StartStatusText);
-            Assert.Contains("Copiar diagnóstico", vm.StartStatusText);
+            Assert.DoesNotContain("Copiar diagnóstico", vm.StartStatusText);
+            Assert.Contains("Win32 5", vm.CompactStartErrorText);
             Assert.Equal("PARADO / PAUSADO", vm.CaptureStateText);
             Assert.False(e.IsCaptureRequested); Assert.False(e.IsRunning);
             Assert.DoesNotContain("PID", vm.SupportDiagnosticText);
