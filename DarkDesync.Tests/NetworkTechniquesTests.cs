@@ -166,5 +166,5 @@ public sealed class NetworkTechniquesTests
             Assert.True(e.TriggerArmedEffect(DiagnosticMode.DscpTrafficMarking,800)); vm.DscpCodepoint = 1; Capture(e,Packet());
             Assert.Equal(46, sent[0][1] >> 2); e.Stop();
             Assert.Equal(63,(new DarkDesync.Services.AppSettings{DscpCodepoint=999}).Validate().DscpCodepoint);
-        }, outboundOnly:true);
+        }, outboundOnly:false);
 }

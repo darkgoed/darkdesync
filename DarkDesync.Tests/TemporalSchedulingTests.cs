@@ -102,8 +102,8 @@ public sealed class TemporalSchedulingTests
     {
         vm.SelectedOutboundEffect=ModeCatalog.Name(mode);vm.DiagnosticCycleDurationMs=731;vm.SaveSettingsCommand.Execute(null);
         var path=Path.Combine(dir,"settings.json");var bytes=File.ReadAllBytes(path);vm.LoadSettings();Assert.Equal(ModeCatalog.Name(mode),vm.SelectedOutboundEffect);Assert.Equal(731,vm.DiagnosticCycleDurationMs);Assert.Equal(bytes,File.ReadAllBytes(path));Assert.False(e.IsCaptureRequested);
-        Assert.Equal(11,vm.DiagnosticModeOptions.Count);Assert.DoesNotContain(vm.DiagnosticModeOptions,n=>n.Contains("UDMUX")||n.Contains("Multipath")||n.Contains("NAT"));
+        Assert.Equal(ModeCatalog.Choices.Count,vm.DiagnosticModeOptions.Count);Assert.DoesNotContain(vm.DiagnosticModeOptions,n=>n.Contains("UDMUX")||n.Contains("Multipath")||n.Contains("NAT"));
         Assert.Equal("Não avaliado",EffectExperienceCatalog.Rating(mode,250).Label);
         Assert.Equal("Não avaliado",EffectExperienceCatalog.Rating(mode,800).Label);
-    },outboundOnly:true);
+    },outboundOnly:false);
 }

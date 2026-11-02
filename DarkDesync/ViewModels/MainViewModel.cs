@@ -822,6 +822,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _hotkeyService = hotkeyService;
         _controller = controller;
         _packetEngine = packetEngine;
+        if (outboundOnly) _packetEngine?.RestrictToApprovedOutboundEffects();
         _settingsStore = settingsStore ?? new SettingsStore();
         _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
 
