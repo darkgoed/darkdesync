@@ -143,8 +143,15 @@ public sealed class ArmedCaptureTests
     public async Task OldPulseTimer_CannotStopOrRestoreNewStart()
     {
         using var engine = DiagnosticModesTests.Engine(); ModelArm(engine);
+        // Wall-clock scheduling can resume this test after the new 800ms lease.
+        // Keep the production timer, but control effect time so that only an old
+        // generation (not legitimate new-pulse expiry) could invalidate the assertion.
+        long now = Stopwatch.GetTimestamp();
+        Set(engine, "_timestamp", (Func<long>)(() => now));
         Assert.True(engine.TriggerArmedEffect(DiagnosticMode.OutboundFreeze, 80));
-        engine.Stop(); ModelArm(engine);
+        engine.Stop();
+        now += Stopwatch.Frequency / 10;
+        ModelArm(engine);
         long generation = engine.ArmedGeneration;
         Assert.True(engine.TriggerArmedEffect(DiagnosticMode.AsymmetricLoss, 800));
         await Task.Delay(180);

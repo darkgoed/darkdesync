@@ -288,7 +288,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
 
     // Diagnostic mode selection
     private string _selectedDiagnosticModeText = "Outbound Freeze";
-    public List<string> DiagnosticModeOptions { get; } = new() { "Outbound Freeze", "Micro-Freeze", "Smooth Delay", "Soft Jitter" };
+    public List<string> DiagnosticModeOptions { get; } = new() { "Outbound Freeze", "Burst Buffering", "Slotted Transmission", "Sawtooth Delay", "Bandwidth Shaping", "Adaptive Freeze" };
 
     public string SelectedDiagnosticModeText
     {
@@ -329,7 +329,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    // One pulse duration shared by the four visible effects.
+    // One pulse duration shared by the six visible effects.
     private int _diagnosticCycleDurationMs = 200;
     public int DiagnosticCycleDurationMs
     {
@@ -731,9 +731,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         var diagMode = _selectedDiagnosticModeText switch
         {
             "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-            "Micro-Freeze" => DiagnosticMode.MicroFreeze,
-            "Smooth Delay" => DiagnosticMode.SmoothDelay,
-            "Soft Jitter" => DiagnosticMode.SoftJitter,
+            "Burst Buffering" => DiagnosticMode.BurstBuffering,
+            "Slotted Transmission" => DiagnosticMode.SlottedTransmission,
+            "Sawtooth Delay" => DiagnosticMode.SawtoothDelay,
+            "Bandwidth Shaping" => DiagnosticMode.BandwidthShaping,
+            "Adaptive Freeze" => DiagnosticMode.AdaptiveFreeze,
             _ => DiagnosticMode.OutboundFreeze
         };
 
@@ -800,7 +802,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         {
             var settings = _settingsStore.Load();
             ApplySettings(settings);
-            bool migrated = settings.DiagnosticMode is not (DiagnosticMode.OutboundFreeze or DiagnosticMode.MicroFreeze or DiagnosticMode.SmoothDelay or DiagnosticMode.SoftJitter);
+            bool migrated = settings.DiagnosticMode is not (DiagnosticMode.OutboundFreeze or DiagnosticMode.BurstBuffering or DiagnosticMode.SlottedTransmission or DiagnosticMode.SawtoothDelay or DiagnosticMode.BandwidthShaping or DiagnosticMode.AdaptiveFreeze);
             SettingsStatus = migrated
                 ? "Efeito antigo → Outbound Freeze. Arquivo original mantido até Salvar."
                 : "Configuração carregada · captura parada.";
@@ -828,9 +830,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
                 DiagnosticMode = _selectedDiagnosticModeText switch
                 {
                     "Outbound Freeze" => DiagnosticMode.OutboundFreeze,
-                    "Micro-Freeze" => DiagnosticMode.MicroFreeze,
-                    "Smooth Delay" => DiagnosticMode.SmoothDelay,
-                    "Soft Jitter" => DiagnosticMode.SoftJitter,
+                    "Burst Buffering" => DiagnosticMode.BurstBuffering,
+                    "Slotted Transmission" => DiagnosticMode.SlottedTransmission,
+                    "Sawtooth Delay" => DiagnosticMode.SawtoothDelay,
+                    "Bandwidth Shaping" => DiagnosticMode.BandwidthShaping,
+                    "Adaptive Freeze" => DiagnosticMode.AdaptiveFreeze,
                     _ => DiagnosticMode.OutboundFreeze
                 }
             });
@@ -868,9 +872,11 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         SelectedDiagnosticModeText = s.DiagnosticMode switch
         {
             DiagnosticMode.OutboundFreeze => "Outbound Freeze",
-            DiagnosticMode.MicroFreeze => "Micro-Freeze",
-            DiagnosticMode.SmoothDelay => "Smooth Delay",
-            DiagnosticMode.SoftJitter => "Soft Jitter",
+            DiagnosticMode.BurstBuffering => "Burst Buffering",
+            DiagnosticMode.SlottedTransmission => "Slotted Transmission",
+            DiagnosticMode.SawtoothDelay => "Sawtooth Delay",
+            DiagnosticMode.BandwidthShaping => "Bandwidth Shaping",
+            DiagnosticMode.AdaptiveFreeze => "Adaptive Freeze",
             _ => "Outbound Freeze"
         };
         CustomFilterText = s.CustomFilter;

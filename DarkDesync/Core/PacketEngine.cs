@@ -588,6 +588,7 @@ public sealed class PacketEngine : IDisposable
     private long _effectGeneration;
     private long _effectDeadline;
     private long _effectStartedTicks;
+    private long _shapingFinishTicks;
     private Timer? _effectTimer;
     public bool IsEffectActive
     {
@@ -631,6 +632,7 @@ public sealed class PacketEngine : IDisposable
             long generation = ++_effectGeneration;
             int duration = Math.Clamp(durationMs, 0, mode == DiagnosticMode.None && _filterMode != FilterMode.LegacyGlobalOutbound ? 10000 : 800);
             _effectStartedTicks = _timestamp();
+            _shapingFinishTicks = _effectStartedTicks;
             _effectDeadline = _effectStartedTicks + (long)duration * Stopwatch.Frequency / 1000;
             _activeDiagnosticMode = mode;
             _stateMachine.TryActivateArmed();
@@ -982,6 +984,71 @@ public sealed class PacketEngine : IDisposable
                             RecordSend(SendPacket(packetBuffer, recvLen, addr));
                             return false;
                         }
+                    }
+
+                    case DiagnosticMode.BurstBuffering:
+                    case DiagnosticMode.SlottedTransmission:
+                    case DiagnosticMode.SawtoothDelay:
+                    case DiagnosticMode.BandwidthShaping:
+                    case DiagnosticMode.AdaptiveFreeze:
+                    {
+                        // New variants require an explicit armed pulse, never continuous flags.
+                        if (!addr.Outbound || !_armedCapture)
+                        {
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        if (_throttleQueue.Count >= 512 || recvLen > WinDivertNative.MtuMax)
+                        {
+                            // Fail open for the remainder of this pulse, with a complete FIFO flush.
+                            CancelArmedEffectLocked();
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            _logger.LogWarning("Buffering saturation: pulse cancelled; FIFO flushed (fail-open).");
+                            return false;
+                        }
+                        long now = _timestamp();
+                        long elapsed = Math.Max(0, now - _effectStartedTicks);
+                        long Ms(int ms) => Math.Max(1, (long)ms * Stopwatch.Frequency / 1000);
+                        long releaseAt;
+                        switch (_activeDiagnosticMode)
+                        {
+                            case DiagnosticMode.BurstBuffering:
+                                // Accumulate complete 80ms batches, not a hold until pulse end.
+                                releaseAt = _effectStartedTicks + (elapsed / Ms(80) + 1) * Ms(80);
+                                break;
+                            case DiagnosticMode.SlottedTransmission:
+                                // 10ms open windows every 60ms; closed windows queue to next slot.
+                                releaseAt = elapsed % Ms(60) < Ms(10) ? now :
+                                    _effectStartedTicks + (elapsed / Ms(60) + 1) * Ms(60);
+                                break;
+                            case DiagnosticMode.SawtoothDelay:
+                                // Delay ramps 0..120ms over each 160ms tooth; FIFO clips overtaking.
+                                releaseAt = now + elapsed % Ms(160) * 3 / 4;
+                                break;
+                            case DiagnosticMode.BandwidthShaping:
+                                // Virtual serialization at 16KiB/s, charged in IP bytes (no token burst).
+                                _shapingFinishTicks = Math.Max(now, _shapingFinishTicks) +
+                                    Math.Max(1, ((long)recvLen * Stopwatch.Frequency + 16383) / 16384);
+                                releaseAt = _shapingFinishTicks;
+                                break;
+                            default: // AdaptiveFreeze: at most 90ms per group or 32 packets.
+                                releaseAt = _throttleQueue.TryPeek(out var head) ? head.ReleaseAtTicks : now + Ms(90);
+                                if (_throttleQueue.Count >= 31)
+                                {
+                                    FlushThrottleQueueLocked();
+                                    releaseAt = now;
+                                }
+                                break;
+                        }
+                        var data = new byte[recvLen];
+                        Marshal.Copy(packetBuffer, data, 0, (int)recvLen);
+                        _throttleQueue.Enqueue(new ThrottledPacket
+                        {
+                            Data = data, Length = recvLen, Address = addr, TimestampTicks = now,
+                            ReleaseAtTicks = Math.Min(releaseAt, _effectDeadline)
+                        });
+                        Interlocked.Increment(ref _packetsThrottled);
+                        return true;
                     }
 
                     case DiagnosticMode.MicroFreeze:
@@ -1339,12 +1406,16 @@ public sealed class PacketEngine : IDisposable
 
     private bool IsThrottleEffective => (!_armedCapture || (_stateMachine.Current == DesyncStateMachine.State.Active && _timestamp() < _effectDeadline)) &&
         (!_legacyPulseActive || WithinLegacyDeadline) && (((_activeDiagnosticMode == DiagnosticMode.OutboundFreeze ||
-        _activeDiagnosticMode == DiagnosticMode.LatencyDelay || IsMinimalTimedEffect) &&
+        _activeDiagnosticMode == DiagnosticMode.LatencyDelay || IsMinimalTimedEffect || IsBufferingEffect) &&
         _stateMachine.Current == DesyncStateMachine.State.Active) || _isThrottleActive ||
         (_throttleEnabled && (_throttleContinuous || _stateMachine.Current == DesyncStateMachine.State.Active)));
 
     private bool IsMinimalTimedEffect => _activeDiagnosticMode is DiagnosticMode.MicroFreeze or
         DiagnosticMode.SmoothDelay or DiagnosticMode.SoftJitter;
+
+    private bool IsBufferingEffect => _activeDiagnosticMode is DiagnosticMode.BurstBuffering or
+        DiagnosticMode.SlottedTransmission or DiagnosticMode.SawtoothDelay or
+        DiagnosticMode.BandwidthShaping or DiagnosticMode.AdaptiveFreeze;
 
     private bool TryReleaseNext(long now)
     {
@@ -1354,10 +1425,15 @@ public sealed class PacketEngine : IDisposable
             if (_throttleQueue.TryPeek(out var oldest))
             {
                 bool effective = IsThrottleEffective;
+                // A delayed worker must wait for the next open slot, not leak into closed time.
+                // Pulse expiry/cancel always bypasses this gate and drains the full FIFO.
+                if (effective && _activeDiagnosticMode == DiagnosticMode.SlottedTransmission &&
+                    Math.Max(0, now - _effectStartedTicks) % Math.Max(1, 60L * Stopwatch.Frequency / 1000) >=
+                    Math.Max(1, 10L * Stopwatch.Frequency / 1000)) return false;
                 if ((!effective || (now >= oldest.ReleaseAtTicks && now >= _nextReleaseTicks)) && _throttleQueue.TryDequeue(out var packet))
                 {
                     SendThrottledPacket(packet);
-                    _nextReleaseTicks = _activeDiagnosticMode == DiagnosticMode.LatencyDelay || IsMinimalTimedEffect ? 0 :
+                    _nextReleaseTicks = _activeDiagnosticMode == DiagnosticMode.LatencyDelay || IsMinimalTimedEffect || IsBufferingEffect ? 0 :
                         Math.Max(now, _timestamp()) + (long)ThrottleReleaseDelayMs * Stopwatch.Frequency / 1000;
                     return true;
                 }

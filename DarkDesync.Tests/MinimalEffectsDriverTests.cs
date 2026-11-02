@@ -15,9 +15,11 @@ public sealed class MinimalEffectsDriverTests(ITestOutputHelper output)
     [GlobalDriverTheory]
     [Trait("Category", "Driver")]
     [InlineData(DiagnosticMode.OutboundFreeze)]
-    [InlineData(DiagnosticMode.MicroFreeze)]
-    [InlineData(DiagnosticMode.SmoothDelay)]
-    [InlineData(DiagnosticMode.SoftJitter)]
+    [InlineData(DiagnosticMode.BurstBuffering)]
+    [InlineData(DiagnosticMode.SlottedTransmission)]
+    [InlineData(DiagnosticMode.SawtoothDelay)]
+    [InlineData(DiagnosticMode.BandwidthShaping)]
+    [InlineData(DiagnosticMode.AdaptiveFreeze)]
     public async Task OwnLoopback_200msSpacePulse_DeliversFifo_ThenArmed_StopDrains(DiagnosticMode mode)
     {
         using var receiver = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));

@@ -15,26 +15,28 @@ Execute `artifacts/DarkDesync-win-x64/DarkDesync.exe` como administrador para ca
 
 ## Perfil, pulso e ciclo
 
-Selecione alvo/filtro, efeito, duração e atalho. A interface oferece somente quatro efeitos de saída, sem descarte intencional, reordering ou duplicação:
+Selecione alvo/filtro, efeito, duração e atalho. A interface oferece somente seis efeitos de saída, sem descarte intencional, reordering ou duplicação:
 
 - Outbound Freeze: retém saída; entrada não é retida. Libera a fila na conclusão/cancelamento.
-- Micro-Freeze: lotes FIFO liberados em fronteiras de 20 ms desde o início do pulso.
-- Smooth Delay: prazo uniforme de 30 ms desde a captura de cada pacote, limitado pelo fim do pulso.
-- Soft Jitter: prazo aleatório de 8–24 ms por pacote; a fila libera somente pela cabeça, portanto um pacote com prazo menor nunca ultrapassa o anterior. A ordem pode reduzir a variação efetiva.
+- Burst Buffering: acumula lotes FIFO e os libera nas fronteiras de 80 ms do pulso.
+- Slotted Transmission: janelas de transmissão de 10 ms a cada 60 ms; fora da janela retém FIFO até o próximo slot.
+- Sawtooth Delay: atraso cresce de 0 até aproximadamente 120 ms a cada dente de 160 ms. A fila impede ultrapassagem na volta do dente; a recuperação integral ocorre no fim do pulso.
+- Bandwidth Shaping: agenda serialização a 16 KiB/s, contabilizada por bytes IP, sem descarte. A resolução do worker agrupa pacotes com prazos próximos; o flush final não está sujeito ao limite de vazão.
+- Adaptive Freeze: retém grupos por até 90 ms, antecipando a liberação ao atingir 32 pacotes. A ocupação e a idade limitam cada grupo, não a duração inteira do pulso.
 
-A duração visível é única para os quatro modos: 0–800 ms, padrão 200 ms. 0 desativa o pulso. Os três novos modos usam valores fixos conservadores, sem controles extras. O worker verifica prazos a cada aproximadamente 4 ms; não se garante precisão de tempo real no Windows. Ao vencer/cancelar o pulso, toda a fila é reinjetada FIFO, mesmo para pacotes capturados perto do fim. Entrada não é retida por estes modos.
+A duração visível é única para os seis modos: 0–800 ms, padrão 200 ms. 0 desativa o pulso. Os cinco novos modos usam valores fixos, sem controles extras. O worker verifica prazos a cada aproximadamente 4 ms, em turnos limitados a 64 envios; não se garante precisão de tempo real no Windows. Slots perdidos aguardam a próxima janela, mas o fim do pulso sempre prevalece. Ao vencer/cancelar o pulso, toda a fila é reinjetada FIFO, mesmo para pacotes capturados perto do fim. Entrada não é retida por estes modos.
 
 START apenas arma a captura, SEM efeito, tanto no GLOBAL quanto no estrito. Só depois de START, “Pulso manual” ou o atalho configurado (padrão Espaço) inicia UM ciclo temporizado. Espaço com o motor parado não abre captura. Não existe ciclo periódico/automático. Uma tecla mantida não repete; novos acionamentos durante um ciclo são ignorados. O hook nunca consome a tecla: Espaço continua chegando à aplicação, inclusive para o pulo normal. A opção de foco limita o acionamento à janela selecionada. F6/F7/F8 não são atalhos próprios dos modos.
 
 Ao terminar/cancelar o pulso, libera a fila FIFO e volta ao estado ARMADO, sem efeito, com o mesmo handle de captura. Flags antigas de throttle contínuo e Drop100 não selecionam efeitos ocultos. Trocar efeito cancela o pulso e preserva a captura armada; trocar filtro/alvo exige novo START. “STOP”, carregar/padrões e fechar cancelam o pulso, liberam a fila e encerram a captura. Salvar preserva efeito, duração, filtro e atalho em `%LOCALAPPDATA%/DarkDesync/settings.json`; o alvo não é persistido.
 
-Configurações v1 continuam legíveis. Os valores numéricos do enum legado foram preservados; os novos são acrescentados. Ao carregar None/Desativado, Burst Loss, Asymmetric Loss, PacketDrop ou LatencyDelay, a seleção migra para Outbound Freeze e informa a migração no status. Duração salva e habilitação/desabilitação são respeitadas, a captura fica parada e o arquivo original NÃO é regravado ao carregar. Campos antigos continuam serializáveis para compatibilidade; apenas Salvar confirma a nova seleção. O painel de retenção, porcentagens de perda e Atraso (ms) não existem mais na interface. APIs legadas internas permanecem para compatibilidade e testes, não são modos disponíveis no combo.
+Configurações v1 continuam legíveis. Os valores numéricos do enum legado foram preservados; os novos são acrescentados. Ao carregar Micro-Freeze, Smooth Delay, Soft Jitter, None/Desativado, Burst Loss, Asymmetric Loss, PacketDrop ou LatencyDelay, a seleção migra para Outbound Freeze e informa a migração no status. Duração salva e habilitação/desabilitação são respeitadas, a captura fica parada e o arquivo original NÃO é regravado ao carregar. Campos antigos continuam serializáveis para compatibilidade; apenas Salvar confirma a nova seleção. O painel de retenção, porcentagens de perda e Atraso (ms) não existem mais na interface. APIs legadas internas permanecem para compatibilidade e testes, não são modos disponíveis no combo.
 
 ## Outbound legado GLOBAL — START arma, Espaço dispara o efeito
 
 O Outbound legado usa o filtro WinDivert literal `outbound`, abrangendo TODOS os aplicativos e suas conexões de saída no Windows. O padrão por processo continua disponível e restrito a PID/FLOW. Selecione “Outbound legado — todos os aplicativos (global)” e o efeito desejado. START arma sem efeito; Espaço dispara o pulso (padrão 200 ms); ao terminar volta a passar pacotes SEM fechar/reabrir o handle. STOP encerra. START não tem limite de tempo, mesmo com pulso em 0 ms. Escolher a opção ou pressionar Espaço com motor parado não inicia captura.
 
-Outbound Freeze conserva seu caminho de retenção original: retém a saída até terminar/cancelar, com liberação FIFO. O limite continua em 512 pacotes; saturação causa STOP de segurança e liberação, não descarte silencioso. Nos três novos modos, uma fila cheia libera o pacote mais antigo antecipadamente para abrir espaço, preservando FIFO, mas abreviando a retenção. Falha de reinjeção é contabilizada como perda e encerra captura por segurança. Não se promete zero perda real: driver, sistema e carga podem causar falhas.
+Outbound Freeze conserva seu caminho de retenção original: retém a saída até terminar/cancelar, com liberação FIFO. O limite continua em 512 pacotes; saturação causa STOP de segurança e liberação, não descarte silencioso. Nos cinco novos modos, saturação cancela o pulso e libera a fila inteira FIFO (fail-open), mantendo captura armada sem efeito. Adaptive normalmente libera antes desse limite. Falha de reinjeção é contabilizada como perda e encerra captura por segurança. Não se promete zero perda real: além da fila da aplicação, a fila limitada do WinDivert (8192 pacotes/4 MiB/1000 ms solicitados) pode perder sob carga; não existe confirmação de entrega end-to-end por pacote IP. Driver, sistema e carga podem causar falhas.
 
 O diagnóstico detalhado e eventos de erro continuam em expansores; a opção do filtro explicita o alcance global sem blocos repetidos de instrução na tela.
 
@@ -58,7 +60,9 @@ WinDivert não permite trocar filtro nativamente no mesmo handle: a publicação
 
 ## Verificação e download
 
-GitHub Actions “Windows validation” compila, executa regressões e smoke WPF, e publica UMA pasta `DarkDesync-win-x64`. Driver real é opt-in em `workflow_dispatch` com `driver_tests=true`; só gera sockets TCP/UDP loopback próprios e falha sem driver. A suíte cobre os quatro efeitos visíveis, APIs legadas e isolamento entre PIDs, TCP:443 inicial, UDP posterior promovido automaticamente, troca de filtro com tráfego, restart sem perder ledger, fechamento de UDP mantendo TCP/PID e encerramento do PID. Entrada é coberta sinteticamente: loopback WinDivert é reportado como saída. Em PowerShell elevado:
+Auditoria curta desta entrega: [variantes FIFO e matriz de segurança](audit/BUFFERING_VARIANTS_20261102.md). TRX e evidência final do commit publicado acompanham a release.
+
+GitHub Actions “Windows validation” compila, executa regressões e smoke WPF, e publica UMA pasta `DarkDesync-win-x64`. Driver real é opt-in em `workflow_dispatch` com `driver_tests=true`; só gera sockets TCP/UDP loopback próprios e falha sem driver. A suíte cobre os seis efeitos visíveis, APIs legadas e isolamento entre PIDs, TCP:443 inicial, UDP posterior promovido automaticamente, troca de filtro com tráfego, restart sem perder ledger, fechamento de UDP mantendo TCP/PID e encerramento do PID. Entrada é coberta sinteticamente: loopback WinDivert é reportado como saída. Em PowerShell elevado:
 
     $env:DARKDESYNC_DRIVER_TESTS='1'
     dotnet build DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release

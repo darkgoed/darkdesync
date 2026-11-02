@@ -24,5 +24,10 @@ public enum DiagnosticMode
     // Append only: persisted legacy numeric values must retain their meaning.
     MicroFreeze = 6,
     SmoothDelay = 7,
-    SoftJitter = 8
+    SoftJitter = 8,
+    BurstBuffering = 9,
+    SlottedTransmission = 10,
+    SawtoothDelay = 11,
+    BandwidthShaping = 12,
+    AdaptiveFreeze = 13
 }
