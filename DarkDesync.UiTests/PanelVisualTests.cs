@@ -55,6 +55,14 @@ internal static partial class Program
     {
         Pump(); var label = (TextBlock)window.FindName("CompactCaptureState");
         Require(label.Text == text && ((SolidColorBrush)label.Foreground).Color.ToString() == "#FF" + rgb[1..], "Actual rendered state text/brush: " + text);
+        double Luminance(Color color)
+        {
+            double Channel(byte v) { double x = v / 255d; return x <= .04045 ? x / 12.92 : Math.Pow((x + .055) / 1.055, 2.4); }
+            return .2126 * Channel(color.R) + .7152 * Channel(color.G) + .0722 * Channel(color.B);
+        }
+        double fg = Luminance(((SolidColorBrush)label.Foreground).Color);
+        double bg = Luminance(((SolidColorBrush)((Border)label.Parent).Background).Color);
+        Require((Math.Max(fg, bg) + .05) / (Math.Min(fg, bg) + .05) >= 4.5, "State text must meet normal-text AA contrast: " + text);
     }
     private static void VerifyCompactPanelUi(MainWindow window, MainViewModel vm, PacketEngine engine, string folder)
     {

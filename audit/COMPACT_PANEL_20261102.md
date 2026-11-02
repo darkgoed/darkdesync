@@ -32,6 +32,8 @@ O log externo da rodada 41458034997 localizou outra espera em FindFirst de árvo
 
 ## Limitações e rollback
 
+Antes de publicar, a checagem numérica AA encontrou vermelho ativo #EF233C sobre fundo #1A1C24 com contraste 4,027:1 (abaixo de 4,5 para fonte 12). Incremental posterior ao PR27 escurece somente fundo da micro-pílula para #0B0D14, mantendo StatusColorBrush e cores semânticas: ativo passa a 4,599:1, parado 6,365:1, armado 10,291:1 e aguardando 9,454:1. CheckStateColor testa agora contraste usando as Brushes reais do visual WPF, não só literais. Sem mudança no motor/presets; gates finais devem ser do novo SHA, não reaproveitar aprovação de PR27.
+
 Não inspecionados integralmente: internals do driver terceiro, kernel/WFP/.NET e todo código de dependências; nenhum outro projeto. Não testados: PC/teclado físico/rede física do usuário, jogo/anticheat, leitor de tela humano e DPI/monitores além do runner. Cores/contraste/geometria e imagens reais não substituem testes com todos os usuários. Sem promessa de exploit/benefício em jogo ou hard-real-time. Captura de desktop é feita somente no runner efêmero isolado de testes, não no host/PC do proprietário.
 
 Rollback .8 preservado: tag v2026.11.02-five-inbound-experimental.8, ZIP local artifacts/issue25/rollback8 verificado contra SHA256SUMS publicado: 6f936b3eb1d658b59c2cb312f8ad4e352f3caca62aa10c7ba91741f58374a0be. Não há migração irreversível. Parar/fechar versão nova, restaurar/extrair .8 em pasta separada, preservar backup de settings e de avaliações antes de salvar/editar. Publicar .9 ou superior somente após gates exatos PR/main, inspeção visual dos PNGs, verificação EXE/DLL/SYS x64 e ZIP/SOURCE_COMMIT/checksums e leitura de volta dos assets publicados. Fechar #25/#23 só após isso.
