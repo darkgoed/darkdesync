@@ -98,6 +98,10 @@ public sealed class ConfigurationBehaviorTests
     [InlineData(DiagnosticMode.MicroFreeze)]
     [InlineData(DiagnosticMode.SmoothDelay)]
     [InlineData(DiagnosticMode.SoftJitter)]
+    [InlineData(DiagnosticMode.BurstBuffering)]
+    [InlineData(DiagnosticMode.SlottedTransmission)]
+    [InlineData(DiagnosticMode.SawtoothDelay)]
+    [InlineData(DiagnosticMode.AdaptiveFreeze)]
     public void LegacyEffectMigration_IsExplicit_DoesNotRewriteSource_AndCannotDrop(DiagnosticMode oldMode) => WithVm((vm, engine, controller, dir) =>
     {
         var store = new SettingsStore(Path.Combine(dir, "settings.json"));
@@ -125,11 +129,11 @@ public sealed class ConfigurationBehaviorTests
 
     [Theory]
     [InlineData("Outbound Freeze", DiagnosticMode.OutboundFreeze)]
-    [InlineData("Burst Buffering", DiagnosticMode.BurstBuffering)]
-    [InlineData("Slotted Transmission", DiagnosticMode.SlottedTransmission)]
-    [InlineData("Sawtooth Delay", DiagnosticMode.SawtoothDelay)]
+    [InlineData("Hold-and-Drain Shaping", DiagnosticMode.HoldAndDrainShaping)]
+    [InlineData("Rate-Step Shaping", DiagnosticMode.RateStepShaping)]
+    [InlineData("Dual Token Bucket", DiagnosticMode.DualTokenBucket)]
     [InlineData("Bandwidth Shaping", DiagnosticMode.BandwidthShaping)]
-    [InlineData("Adaptive Freeze", DiagnosticMode.AdaptiveFreeze)]
+    [InlineData("Flow-Aware Shaping", DiagnosticMode.FlowAwareShaping)]
     public void NewModesRoundtrip_AndUse200msWithoutHiddenLegacyLoss(string text, DiagnosticMode mode) => WithVm((vm, engine, controller, dir) =>
     {
         Assert.Equal(200, vm.DiagnosticCycleDurationMs);

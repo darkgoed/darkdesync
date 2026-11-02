@@ -29,5 +29,9 @@ public enum DiagnosticMode
     SlottedTransmission = 10,
     SawtoothDelay = 11,
     BandwidthShaping = 12,
-    AdaptiveFreeze = 13
+    AdaptiveFreeze = 13,
+    HoldAndDrainShaping = 14,
+    RateStepShaping = 15,
+    DualTokenBucket = 16,
+    FlowAwareShaping = 17
 }

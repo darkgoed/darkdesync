@@ -589,6 +589,7 @@ public sealed class PacketEngine : IDisposable
     private long _effectDeadline;
     private long _effectStartedTicks;
     private long _shapingFinishTicks;
+    private PulseShaper? _pulseShaper;
     private Timer? _effectTimer;
     public bool IsEffectActive
     {
@@ -634,6 +635,7 @@ public sealed class PacketEngine : IDisposable
             _effectStartedTicks = _timestamp();
             _shapingFinishTicks = _effectStartedTicks;
             _effectDeadline = _effectStartedTicks + (long)duration * Stopwatch.Frequency / 1000;
+            _pulseShaper = PulseShaper.Handles(mode) ? new PulseShaper(mode, _effectStartedTicks, _effectDeadline) : null;
             _activeDiagnosticMode = mode;
             _stateMachine.TryActivateArmed();
             _effectTimer?.Dispose();
@@ -951,6 +953,40 @@ public sealed class PacketEngine : IDisposable
             {
                 switch (_activeDiagnosticMode)
                 {
+                    case DiagnosticMode.HoldAndDrainShaping:
+                    case DiagnosticMode.RateStepShaping:
+                    case DiagnosticMode.DualTokenBucket:
+                    case DiagnosticMode.FlowAwareShaping:
+                    {
+                        if (!addr.Outbound || !_armedCapture)
+                        {
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        PulseShaper.Flow flow = default;
+                        bool identifiable = _activeDiagnosticMode != DiagnosticMode.FlowAwareShaping ||
+                            (recvLen >= 20 && Marshal.ReadByte(packetBuffer, 0) >> 4 == 4 &&
+                             TryExtractIpAndPorts(packetBuffer, recvLen, out var source, out var destination,
+                                 out var sourcePort, out var destinationPort) &&
+                             SetFlow(out flow, Marshal.ReadByte(packetBuffer, 9), source!, sourcePort, destination!, destinationPort));
+                        if (!identifiable || _pulseShaper == null || recvLen == 0 || recvLen > 1536 || _pulseShaper.Count >= 512)
+                        {
+                            CancelArmedEffectLocked();
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        var data = new byte[recvLen];
+                        Marshal.Copy(packetBuffer, data, 0, (int)recvLen);
+                        var packet = new ThrottledPacket { Data = data, Length = recvLen, Address = addr, TimestampTicks = _timestamp() };
+                        if (!_pulseShaper.Enqueue(packet, flow))
+                        {
+                            CancelArmedEffectLocked();
+                            RecordSend(SendPacket(packetBuffer, recvLen, addr));
+                            return false;
+                        }
+                        Interlocked.Increment(ref _packetsThrottled);
+                        return true;
+                    }
                     case DiagnosticMode.OutboundFreeze:
                     {
                         if (addr.Outbound)
@@ -1283,6 +1319,13 @@ public sealed class PacketEngine : IDisposable
         }
     }
 
+    private static bool SetFlow(out PulseShaper.Flow flow, byte protocol, System.Net.IPAddress source,
+        ushort sourcePort, System.Net.IPAddress destination, ushort destinationPort)
+    {
+        flow = new(protocol, source.ToString(), sourcePort, destination.ToString(), destinationPort);
+        return sourcePort != 0 && destinationPort != 0;
+    }
+
     private void RequestSafetyStop(string reason)
     {
         if (!_isRunning || Interlocked.Exchange(ref _safetyStopRequested, 1) != 0) return;
@@ -1422,6 +1465,11 @@ public sealed class PacketEngine : IDisposable
         lock (_packetLock)
         {
             ExpireArmedEffectLocked();
+            if (_pulseShaper != null && _pulseShaper.TryDequeue(now, out var shaped))
+            {
+                SendThrottledPacket(shaped!);
+                return true;
+            }
             if (_throttleQueue.TryPeek(out var oldest))
             {
                 bool effective = IsThrottleEffective;
@@ -1453,6 +1501,11 @@ public sealed class PacketEngine : IDisposable
 
     private void FlushThrottleQueueLocked()
     {
+        if (_pulseShaper != null)
+        {
+            foreach (var shaped in _pulseShaper.Drain()) SendThrottledPacket(shaped);
+            _pulseShaper = null;
+        }
         while (_throttleQueue.TryDequeue(out var packet))
         {
             SendThrottledPacket(packet);
