@@ -77,6 +77,6 @@ Auditoria, riscos, escopo inspecionado/não inspecionado, evidências e rollback
 
 Histórico: .7 entregou os oito schedulers e .8 adicionou avaliações. A especificação atual de painel compacto e dois presets corrige .8 conforme [issues #25/#23](audit/COMPACT_PANEL_20261102.md). Screenshots reais do desktop Windows e manifests de dimensões/estado acompanham a release; não são mockups. Os gates originais de driver/CI permanecem.
 
-Releases: https://github.com/darkgoed/darkdesync/releases/latest (autenticação necessária). Pacote único win-x64, SOURCE_COMMIT e SHA256; .11 (e anteriores) permanecem rollback. O pacote publicado vem do run verde do SHA final de main.
+Releases: https://github.com/darkgoed/darkdesync/releases/latest (autenticação necessária). Pacote único win-x64, SOURCE_COMMIT e SHA256; .13 e .12 permanecem rollback. O pacote publicado vem do run verde do SHA final de main. Limpeza do painel e preservação do worker dedicado da .13: [auditoria #37](audit/CLEAN_PANEL_ISSUE37_20261102.md).
 
 Não foi testado o PC do usuário, teclado físico, interface física/internet adversa, Roblox Player ou anticheat. UI Automation simula seleção e eventos hotkey/WPF, não comprova efeito em jogo. Não há injeção em jogos, bypass, exploit garantido ou promessa de vantagem em partidas públicas.

@@ -110,6 +110,7 @@ internal static partial class Program
             Require(controls.OfType<ComboBox>().Count() == 2 && vm.Processes.Count == 0, "Only effect/style/hotkey; no network/protocol/target discovery or selectors");
             Require(vm.DiagnosticCycleDurationMs == 200 && state.Text == "PARADO", "Initial stopped state; ranking does not set 250ms");
             VerifyExperienceUi(window, vm, store, engine);
+            VerifyCleanPanelUia(window, effects);
             VerifyCompactPanelUi(window, vm, engine, "artifacts/driver/screenshots");
             foreach (var mode in ModeCatalog.OutboundChoices.Values.Where(m => m != DiagnosticMode.PacketSizeAwareShaping))
             {

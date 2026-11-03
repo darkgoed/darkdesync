@@ -72,15 +72,6 @@ public partial class MainWindow : Window
 
     private void Close_Click(object sender, RoutedEventArgs e) => SystemCommands.CloseWindow(this);
 
-    private void OpenNetworkExperiments(object sender, RoutedEventArgs e)
-    {
-        if (_viewModel.IsEngineRunning || _viewModel.CompactStateText != "PARADO")
-        {
-            MessageBox.Show(this, "Pressione STOP antes de abrir o laboratório separado.", "Experimentos de rede");
-            return;
-        }
-        new NetworkExperimentsWindow { Owner = this }.ShowDialog();
-    }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
