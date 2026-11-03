@@ -62,7 +62,7 @@
      <TextBlock x:Name="EffectRatingNote" Text="{Binding EffectRatingNote}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,8,0,8" MaxHeight="74" FontSize="11" />
      <TextBlock Text="Sobre este efeito" Foreground="{StaticResource TextMutedBrush}" FontSize="11" ToolTip="{Binding EffectSupportText}" />
      <TextBlock x:Name="UnavailableTechniques" Text="Indisponíveis: UDMUX · Multipath · NAT" FontSize="10" Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0" ToolTip="UDMUX: canais externos não comprovados. Multipath: exige duas rotas reais e topologia própria; IfIdx outbound é ignorado. NAT rebinding: exige gateway/NAT e servidor próprios com prova do mapeamento externo. Não são efeitos acionáveis." />
-     <Button x:Name="NetworkExperimentsButton" Content="Experimentos de rede (6)" Click="OpenNetworkExperiments" Style="{StaticResource OutlineButton}" Margin="0,8,0,0" HorizontalAlignment="Left" Padding="9,4" FontSize="11" AutomationProperties.AutomationId="NetworkExperimentsButton" />
+
      <TextBlock Text="{Binding MtuLabSummary}" Visibility="{Binding IsMtuLabSelected, Converter={StaticResource BoolVisibility}}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0" />
     </StackPanel>
     <StackPanel Grid.Column="2" x:Name="DurationArea">

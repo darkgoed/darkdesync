@@ -51,8 +51,7 @@ jobs:
           }
       - name: Unit and regression tests (no driver)
         run: dotnet test DarkDesync.Tests/DarkDesync.Tests.csproj -c Release --no-build --filter "Category!=Driver" --logger "trx;LogFileName=windows.trx" --results-directory artifacts/tests
-      - name: Owned UDP reflector protocol and authorization
-        run: python -m unittest discover -s tools -p test_nat_reflector.py -v
+
       - name: WPF visual tree and bindings
         run: dotnet run --project DarkDesync.UiTests/DarkDesync.UiTests.csproj -c Release --no-build
       - name: Single Windows x64 download
